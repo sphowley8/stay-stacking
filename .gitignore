@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+terraform.tfvars
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Secrets & credentials
+.env
+.env.*
+*.pem
+*.key
+
+# Lambda build artifacts
+*.zip
+/tmp/
+
+# Backups
+backups/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

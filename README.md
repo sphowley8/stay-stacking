@@ -1,525 +1,159 @@
-# StayStacking – Multi-Dimensional Load Tracking Web App
+# StayStacking
 
-StayStacking is a web application for tracking **Aerobic, Muscular, and Injury Load** in endurance athletes, with a focus on intelligent load management, injury prevention, and long-term performance compounding.
+> Fitness compounds when consistency compounds. Keep stacking healthy training blocks.
 
----
-
-# The Meaning Behind the Name
-
-**StayStacking** is based on the concept of **“stacking blocks.”**
-
-A *block* represents a successful 10+ week training cycle.
-
-When an athlete completes:
-- One healthy training block → progress  
-- Two healthy blocks → measurable gains  
-- Five or more stacked blocks → compounding fitness improvements  
-
-The idea is simple:
-
-> Fitness compounds when consistency compounds.
-
-The goal of StayStacking is not to maximize a single week.
-
-It is to:
-- Protect training continuity
-- Prevent avoidable injuries
-- Sustain progressive overload
-- Enable multiple healthy blocks per year
-
-Over time, stacked healthy blocks create exponential improvement.
+StayStacking is a serverless web application for endurance athletes that tracks training load across three physiological systems — aerobic, muscular, and injury — to prevent overuse injuries and enable long-term progressive fitness.
 
 ---
-
-# Project Vision
-
-Endurance athletes often track:
-
-- Mileage  
-- Vert  
-- Time  
-- Heart rate  
-- Strength work  
-
-But they rarely track:
-
-- Load density across physiological systems  
-- Muscular strain accumulation  
-- Injury reactivity trends  
-- Recovery tool effectiveness  
-- Block-to-block sustainability  
-
-**StayStacking** unifies these into a single dashboard with three dedicated load views:
-
-1. **Aerobic Load**
-2. **Muscular Load**
-3. **Injury Load**
-
-Each load type has:
-
-- A dedicated view  
-- A custom Load Index  
-- Daily & weekly trend graphs  
-- Consistent weekly stats (vert / mileage / strength)  
-- Context within the current training block  
-
----
-
-# High-Level Architecture
-
-## Stack Overview
-
-Frontend:
-- HTML  
-- CSS  
-- Vanilla JS (optionally Svelte later)  
-- Chart.js (or similar lightweight charting library)  
-
-Backend:
-- AWS Lambda (Node.js)  
-- API Gateway  
-- DynamoDB  
-- S3 (static hosting)  
-- CloudFront (optional CDN)  
-- Cognito (optional auth)  
-
-Infrastructure:
-- Terraform (Infrastructure as Code)
-
-External APIs:
-- Strava API (OAuth + Activity Streams)
-
----
-
-# Core Concept: Multi-System Load Tracking
-
-StayStacking separates stress into three systems because:
-
-- Aerobic overload ≠ Muscular overload  
-- Muscular overload ≠ Tendon overload  
-- Tendon reactivity ≠ Cardiovascular fatigue  
-
-Each system gets its own index, view, and trend tracking.
-
----
-
-# 1. Aerobic Load View
 
 ## Purpose
 
-Measure total cardiovascular strain across all activities (Z1+).
+Endurance athletes often track volume (mileage, vert, time) but not **load density** — the compounding stress across cardiovascular, muscular, and tendon systems. StayStacking answers one question: *Is my body adapting or becoming more reactive?*
 
-If the athlete:
-- Runs  
-- Hikes  
-- Climbs  
-- Cycles  
-
-All contribute to cumulative aerobic stress.
-
-This helps prevent:
-
-- Chronic under-recovery  
-- Sleep disruption from high cumulative load  
-- Aerobic overreach  
+The app connects to Strava to pull activity data and overlays manual daily check-ins (stiffness, pain, recovery tools) to give a holistic view of training load over rolling 8-week windows.
 
 ---
 
-## Data Inputs
+## Repo Structure
 
-- Activity duration  
-- HR stream  
-- Athlete HR zones  
-- Time in each zone  
-
----
-
-## Aerobic Load Index (ALI)
-
-### Option A (Simple)
-
-ALI = Total minutes in Z1+
-
-### Option B (Weighted)
-
-ALI =  
-(Z1 × 1.0) +  
-(Z2 × 1.2) +  
-(Z3 × 1.5) +  
-(Z4 × 2.0) +  
-(Z5 × 2.5)
-
-This produces a daily aerobic stress score.
-
----
-
-## View Layout
-
-Top Section:
-- Aerobic Load Index (Today)  
-- 7-day rolling total  
-- 4-week trend line  
-
-Middle:
-- Graph: Daily ALI (line graph)  
-- Graph: Weekly ALI (bar graph)  
-
-Bottom (Shared Across All Views):
-- Weekly vert  
-- Weekly mileage  
-- Weekly strength sessions  
-
----
-
-# 2. Muscular Load View
-
-## Purpose
-
-Track mechanical strain placed on the muscular system.
-
-Excess sustained muscular load can:
-
-- Increase hypertonicity  
-- Reduce range of motion  
-- Increase tendon load  
-- Increase stress fracture risk  
-
-This view helps regulate muscular density within and across training blocks.
+```
+stay-stacking/
+│
+├── frontend/
+│   ├── index.html          Single-page app shell with all tab panels and modal
+│   ├── styles.css          All styles using the earthy color palette
+│   └── app.js              All app logic: state, API calls, Chart.js, calendar
+│
+├── backend/
+│   └── lambdas/
+│       ├── shared/
+│       │   ├── auth.js     JWT sign/verify + response helpers + withAuth() wrapper
+│       │   ├── dynamo.js   DynamoDB DocumentClient singleton (AWS SDK v3)
+│       │   ├── strava.js   Strava API client + token refresh logic
+│       │   └── weekStart.js  Pure fn: date → Monday of that week (UTC-safe)
+│       ├── auth/           GET /auth/strava + GET /auth/callback
+│       ├── user/           GET/POST /user (profile + injury toggle)
+│       ├── checkin/        GET/POST /checkin (daily morning/evening log)
+│       ├── activities/     GET /activities + POST /activities/sync
+│       └── training-plan/  GET/POST/DELETE /training-plan/{date}
+│
+├── terraform/
+│   ├── main.tf             Root config — instantiates all modules
+│   ├── variables.tf        Input variables (region, environment, secrets)
+│   ├── outputs.tf          App URL, API URL, bucket names
+│   └── modules/
+│       ├── database/       DynamoDB tables (4 tables + GSIs + TTL)
+│       ├── storage/        S3 buckets + CloudFront distribution (OAC)
+│       └── api/
+│           ├── main.tf     Lambda functions + API Gateway + IAM
+│           └── route/      Reusable submodule: HTTP method + OPTIONS CORS
+│
+├── scripts/
+│   ├── deploy.sh           Full deploy: package lambdas → terraform → upload frontend
+│   └── teardown.sh         terraform destroy with confirmation (optional DynamoDB backup)
+│
+├── CLAUDE.md               Agent session notes + architecture summary
+├── README.md               This file
+└── TESTING.md              Testing TODO list + test documentation
+```
 
 ---
 
-## Data Inputs
+## Architecture
 
-- Time in Z3–Z5  
-- Vertical gain  
-- Strength sessions  
-- Lifting load (optional weighted metric)  
+```
+Browser
+  │
+  ├── HTTPS → CloudFront (CDN)
+  │             └── S3 (static files: index.html, styles.css, app.js)
+  │
+  └── HTTPS → API Gateway (REST)
+                ├── /auth/*          → Lambda: auth
+                ├── /user            → Lambda: user
+                ├── /checkin         → Lambda: checkin
+                ├── /activities/*    → Lambda: activities
+                └── /training-plan/* → Lambda: training-plan
+                        │
+                        ├── DynamoDB (4 tables)
+                        └── Strava API (external)
+```
 
----
+**Cost profile:** Entirely serverless. For personal use, monthly cost is near $0 (Lambda + API Gateway + DynamoDB all have generous free tiers; CloudFront + S3 very cheap for low traffic).
 
-## Muscular Load Index (MLI)
+### DynamoDB Tables
 
-Example formula:
+| Table | PK | SK | Notes |
+|---|---|---|---|
+| `staystacking-users-{env}` | userId (S) | — | GSI on stravaId; stores tokens |
+| `staystacking-activities-{env}` | userId (S) | activityId (S) | GSI on weekStart; TTL = 56 days |
+| `staystacking-checkins-{env}` | userId (S) | date (YYYY-MM-DD) | Morning + evening in one item |
+| `staystacking-training-plan-{env}` | userId (S) | date (YYYY-MM-DD) | Planned distance/elevation/time |
 
-MLI =  
-(High HR Minutes × 1.5)  
-+ (Vert ÷ 100)  
-+ (Strength Score)
+### Auth Flow
 
-Where:
-
-Strength Score =  
-- Bodyweight session = 10  
-- Heavy lifting session = 20  
-- Weighted eccentric session = 15  
-
----
-
-## View Layout
-
-Top:
-- Muscular Load Index (Today)  
-- Weekly cumulative MLI  
-
-Middle:
-- Daily MLI trend  
-- 4-week muscular strain trend  
-
-Bottom:
-- Weekly vert  
-- Weekly mileage  
-- Weekly strength count  
+1. User clicks "Connect with Strava" → `GET /auth/strava` → redirect to Strava OAuth
+2. Strava redirects to `GET /auth/callback?code=...`
+3. Lambda exchanges code for tokens, creates/updates user in DynamoDB
+4. Lambda issues a 30-day JWT → redirects to `FRONTEND_URL/#token={jwt}`
+5. Frontend stores JWT in `localStorage`; all subsequent calls include `Authorization: Bearer {jwt}`
 
 ---
 
-# 3. Injury Load View
+## Usage
 
-## Purpose
+### Prerequisites
 
-When an injury occurs, precision in load management becomes critical.
+- AWS CLI installed and configured (`aws configure`)
+- Terraform ≥ 1.3 installed
+- Node.js ≥ 18 installed (for Lambda packaging)
+- A Strava API app created at https://www.strava.com/settings/api
 
-This view tracks:
+### First Deploy
 
-- Symptom progression  
-- Load density  
-- Recovery tools  
-- Correlation patterns  
-- Tendon reactivity trends  
+```bash
+# 1. Set required secrets (never commit these)
+export TF_VAR_jwt_secret="$(openssl rand -base64 32)"
+export TF_VAR_strava_client_id="YOUR_STRAVA_CLIENT_ID"
+export TF_VAR_strava_client_secret="YOUR_STRAVA_CLIENT_SECRET"
 
-The goal is to preserve the training block while protecting tissue capacity.
+# 2. Deploy everything
+./scripts/deploy.sh
 
----
+# 3. The script outputs:
+#    App URL:  https://xxxx.cloudfront.net
+#    API URL:  https://xxxx.execute-api.us-east-1.amazonaws.com/prod
+```
 
-## Data Inputs
+After first deploy, register the API Gateway domain as the **Authorization Callback Domain** in your Strava app settings, then open the App URL.
 
-Morning:
-- Stiffness (0–10)  
-- Pain (0–10)  
-- Stability status  
-- Tenderness (Y/N)  
+### Re-deploy (after code changes)
 
-Evening:
-- Pain (0–10)  
-- Fatigue (0–10)  
+```bash
+# Re-run the full deploy script — it re-packages lambdas and re-syncs frontend
+./scripts/deploy.sh
+```
 
-Recovery tools:
-- Ice  
-- Contrast  
-- Percussion gun  
-- Graston scraping  
-- Shockwave  
-- Supportive shoes  
-- Stretching  
+### Teardown
 
-Activity data:
-- Vert  
-- Mileage  
-- Strength  
+```bash
+# Destroys all AWS resources. Uncomment backup section in teardown.sh first if needed.
+./scripts/teardown.sh
+```
 
----
+### Strava App Registration
 
-## Injury Load Index (ILI)
+1. Go to https://www.strava.com/settings/api
+2. Create a new application
+3. Set **Authorization Callback Domain** = the domain from `terraform output api_gateway_url` (no `https://`, no path)
+4. Note the **Client ID** and **Client Secret** → these are `TF_VAR_strava_client_id` and `TF_VAR_strava_client_secret`
+5. Required OAuth scope: `activity:read_all`
 
-Example:
+### Environment Variables (Terraform)
 
-ILI =  
-Morning Stiffness Trend (3-day avg)  
-+ Yesterday Load Density  
-- Recovery Intervention Score  
-
-Recovery Score example:
-- Contrast = -1  
-- Ice = -1  
-- Shockwave = -2  
-- Percussion = -0.5  
-
-ILI outputs:
-- 🟢 Adapting  
-- 🟡 Watch  
-- 🔴 Reduce Load  
-
----
-
-## View Layout
-
-Top:
-- Injury Status Indicator  
-- Morning stiffness graph (7-day trend)  
-
-Middle:
-- Overlay graph:
-  - Stiffness trend  
-  - Load density  
-  - Recovery tool markers  
-
-Bottom:
-- Weekly vert  
-- Weekly mileage  
-- Weekly strength  
-
----
-
-# Shared Components Across All Views
-
-Each view contains:
-
-- Weekly Vert  
-- Weekly Mileage  
-- Weekly Strength Count  
-- 7-day Load Trend  
-- 4-week Load Trend  
-- Current Training Block Summary  
-
----
-
-# Training Block Tracking (StayStacking Core Feature)
-
-Each user defines:
-
-- Block start date  
-- Block target duration (10–16 weeks)  
-- Primary goal (e.g., build vert tolerance, aerobic base, rehab tendon)  
-
-The app tracks:
-
-- % of block completed  
-- Consistency score  
-- Injury-free streak  
-- Block load averages  
-
-When a block completes:
-
-- It is archived  
-- Summary metrics are stored  
-- Year-over-year block comparison becomes possible  
-
-This reinforces the StayStacking philosophy:
-
-Healthy blocks → Stacked blocks → Compounding fitness.
-
----
-
-# AWS Infrastructure Plan
-
----
-
-# Infrastructure Components
-
-## S3
-- Static site hosting  
-- Stores HTML/CSS/JS bundle  
-
-## CloudFront (Optional)
-- CDN  
-- HTTPS  
-
-## API Gateway
-- REST API endpoints  
-
-## Lambda Functions
-- Fetch Strava data  
-- Process HR streams  
-- Compute load indices  
-- Store daily summaries  
-
-## DynamoDB Tables
-
-### Users
-- user_id  
-- strava_id  
-- hr_zones  
-- active_block  
-- injury_status  
-
-### Activities
-- activity_id  
-- date  
-- duration  
-- vert  
-- ALI  
-- MLI  
-
-### InjuryLogs
-- date  
-- morning_stiffness  
-- pain  
-- recovery_tools  
-- ILI  
-
-### TrainingBlocks
-- block_id  
-- start_date  
-- end_date  
-- goal  
-- avg_ALI  
-- avg_MLI  
-- injury_days  
-
----
-
-# Terraform Structure
-
-Recommended layout:
-
-/terraform  
-  main.tf  
-  variables.tf  
-  outputs.tf  
-
-  /modules  
-    /s3  
-    /lambda  
-    /apigateway  
-    /dynamodb  
-    /cognito  
-
-Deploy flow:
-
-1. terraform init  
-2. terraform plan  
-3. terraform apply  
-
----
-
-# API Endpoints (Example)
-
-GET /activities  
-POST /injury-log  
-GET /load/aerobic  
-GET /load/muscular  
-GET /load/injury  
-GET /weekly-summary  
-POST /training-block  
-GET /training-block/current  
-
----
-
-# Data Processing Flow
-
-1. User authenticates via Strava OAuth  
-2. Backend pulls activities  
-3. Fetch HR stream  
-4. Compute:
-   - Time in zone  
-   - ALI  
-   - MLI  
-5. Store summarized metrics  
-6. Frontend renders graphs  
-
----
-
-# Cost Optimization Strategy
-
-- Serverless only (no EC2)  
-- DynamoDB on-demand  
-- Lambda short execution time  
-- Store summarized metrics (not full HR streams long-term)  
-- Use S3 + CloudFront for static frontend  
-
-Expected cost (small user base):
-Low monthly cost during early stage.
-
----
-
-# MVP Roadmap
-
-Phase 1:
-- Strava OAuth  
-- Aerobic Load View  
-- Basic trend graphs  
-
-Phase 2:
-- Muscular Load View  
-- Vert-weighted model  
-
-Phase 3:
-- Injury tracking  
-- Recovery correlation overlay  
-
-Phase 4:
-- Training block tracking  
-- Block summaries  
-- Compounding progress metrics  
-
-Phase 5:
-- Smart alerts  
-- Load density warnings  
-- Adaptive suggestions  
-
----
-
-# Design Philosophy
-
-StayStacking is not about maximizing a single workout.
-
-It is about:
-
-- Sustainable progression  
-- System-specific stress awareness  
-- Injury prevention through visibility  
-- Training density control  
-- Long-term compounding fitness  
-
-The ultimate goal:
-
-Keep stacking healthy training blocks.
+| Variable | Description | Sensitive |
+|---|---|---|
+| `TF_VAR_region` | AWS region (default: us-east-1) | No |
+| `TF_VAR_environment` | Environment name (default: prod) | No |
+| `TF_VAR_jwt_secret` | JWT signing secret (min 32 chars) | Yes |
+| `TF_VAR_strava_client_id` | Strava API client ID | Yes |
+| `TF_VAR_strava_client_secret` | Strava API client secret | Yes |

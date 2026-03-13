@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StayStacking</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- ===================== AUTH SCREEN ===================== -->
+  <div id="auth-screen" class="auth-screen hidden">
+    <div class="auth-card">
+      <h1 class="brand">StayStacking</h1>
+      <p class="brand-tagline">Keep stacking healthy training blocks.</p>
+      <button id="btn-connect-strava" class="btn btn-strava">
+        Connect with Strava
+      </button>
+      <p id="auth-error" class="auth-error hidden"></p>
+    </div>
+  </div>
+
+  <!-- ===================== MAIN APP ===================== -->
+  <div id="app" class="hidden">
+
+    <!-- Header -->
+    <header class="app-header">
+      <span class="brand-small">StayStacking</span>
+      <nav class="tab-bar">
+        <button class="tab-btn" data-tab="checkin" disabled title="Coming soon">Daily Check-In</button>
+        <button class="tab-btn active" data-tab="load">Progressive Load</button>
+        <button class="tab-btn" data-tab="plan" disabled title="Coming soon">Training Plan</button>
+      </nav>
+      <button id="btn-sync" class="btn btn-sync" title="Sync Strava activities">Sync</button>
+    </header>
+
+    <!-- ===================== TAB: DAILY CHECK-IN ===================== -->
+    <div id="tab-checkin" class="tab-panel hidden">
+      <div class="panel-content">
+
+        <!-- Recovery Score Banner -->
+        <div id="recovery-banner" class="recovery-banner recovery-unknown">
+          <span id="recovery-icon">—</span>
+          <span id="recovery-label">Loading...</span>
+        </div>
+
+        <!-- Morning Check-In -->
+        <section class="card">
+          <h2 class="card-title">Morning Check-In</h2>
+          <div class="form-group">
+            <label>Morning Stiffness <span id="val-stiffness" class="slider-val">5</span>/10</label>
+            <input type="range" id="morning-stiffness" class="slider" min="0" max="10" value="5" />
+          </div>
+          <div class="form-group">
+            <label>Morning Pain <span id="val-pain" class="slider-val">0</span>/10</label>
+            <input type="range" id="morning-pain" class="slider" min="0" max="10" value="0" />
+          </div>
+          <div class="form-row">
+            <div class="form-group half">
+              <label>Tender to Touch?</label>
+              <div class="toggle-group">
+                <button class="toggle-btn active" data-field="tenderToTouch" data-value="false">No</button>
+                <button class="toggle-btn" data-field="tenderToTouch" data-value="true">Yes</button>
+              </div>
+            </div>
+            <div class="form-group half">
+              <label>Arch Feels</label>
+              <select id="arch-feels" class="select">
+                <option value="Stable">Stable</option>
+                <option value="Fatigued">Fatigued</option>
+                <option value="Collapsing">Collapsing</option>
+              </select>
+            </div>
+          </div>
+          <button id="btn-save-morning" class="btn btn-primary btn-full">Save Morning Check-In</button>
+        </section>
+
+        <!-- Today's Suggested Activities -->
+        <section class="card">
+          <h2 class="card-title">Suggested Today</h2>
+          <div id="suggested-activities" class="suggestion-list">
+            <p class="muted">Save morning check-in to see suggestions.</p>
+          </div>
+        </section>
+
+        <!-- Evening Check-In -->
+        <section class="card">
+          <h2 class="card-title">Evening Check-In</h2>
+          <div class="form-group">
+            <label>Evening Pain <span id="val-evening-pain" class="slider-val">0</span>/10</label>
+            <input type="range" id="evening-pain" class="slider" min="0" max="10" value="0" />
+          </div>
+          <div class="form-group">
+            <label>Fatigue <span id="val-fatigue" class="slider-val">0</span>/10</label>
+            <input type="range" id="evening-fatigue" class="slider" min="0" max="10" value="0" />
+          </div>
+          <div class="form-group">
+            <label>Recovery Modalities Used</label>
+            <div class="checkbox-grid">
+              <label class="check-item"><input type="checkbox" value="Contrast" /> Contrast Bath</label>
+              <label class="check-item"><input type="checkbox" value="Ice" /> Ice</label>
+              <label class="check-item"><input type="checkbox" value="Theragun" /> Theragun</label>
+              <label class="check-item"><input type="checkbox" value="Graston" /> Graston</label>
+              <label class="check-item"><input type="checkbox" value="Shockwave" /> Shockwave</label>
+              <label class="check-item"><input type="checkbox" value="Stretching" /> Stretching</label>
+              <label class="check-item"><input type="checkbox" value="Supportive shoes" /> Supportive Shoes</label>
+            </div>
+          </div>
+          <button id="btn-save-evening" class="btn btn-primary btn-full">Save Evening Check-In</button>
+        </section>
+
+        <!-- Injury Tracking Toggle -->
+        <section class="card">
+          <div class="injury-toggle-row">
+            <h2 class="card-title">Injury Tracking</h2>
+            <label class="switch">
+              <input type="checkbox" id="injury-toggle" />
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+          <p class="muted" id="injury-toggle-hint">Enable to track an active injury and monitor load density.</p>
+
+          <!-- Injury Detail Panel (shown when active) -->
+          <div id="injury-panel" class="hidden">
+            <div class="ldi-display">
+              <span class="ldi-label">Load Density Index</span>
+              <span id="ldi-value" class="ldi-value">—</span>
+              <span id="ldi-status" class="ldi-status-badge">—</span>
+            </div>
+            <p class="injury-advice" id="injury-advice"></p>
+          </div>
+        </section>
+
+      </div>
+    </div>
+
+    <!-- ===================== TAB: PROGRESSIVE LOAD ===================== -->
+    <div id="tab-load" class="tab-panel">
+      <div class="panel-content">
+        <div class="chart-controls">
+          <span class="chart-controls-label">Show:</span>
+          <button class="metric-btn active" data-metric="distance">Distance</button>
+          <button class="metric-btn" data-metric="elevation">Elevation</button>
+          <button class="metric-btn" data-metric="time">Time</button>
+          <button class="metric-btn" data-metric="zones">HR Zones</button>
+          <button class="metric-btn" data-metric="paceZones">Pace Zones</button>
+          <button class="metric-btn" data-metric="powerZones">Power Zones</button>
+          <button class="metric-btn" data-metric="gradeZones">Grade Zones</button>
+        </div>
+        <div id="summary-filter" class="summary-filter-row hidden"></div>
+        <div id="load-summary" class="week-summary hidden">
+          <div class="summary-card">
+            <span class="summary-label">This Week Distance</span>
+            <span id="summary-distance" class="summary-value">—</span>
+          </div>
+          <div class="summary-card">
+            <span class="summary-label">This Week Elevation</span>
+            <span id="summary-elevation" class="summary-value">—</span>
+          </div>
+          <div class="summary-card">
+            <span class="summary-label">This Week Time</span>
+            <span id="summary-time" class="summary-value">—</span>
+          </div>
+        </div>
+        <div id="ftp-row" class="ftp-row hidden">
+          <label class="ftp-label" for="ftp-input">FTP:</label>
+          <input type="number" id="ftp-input" class="ftp-input" min="1" step="1" placeholder="275" />
+          <span class="ftp-unit">W</span>
+          <span id="ftp-saved" class="ftp-saved hidden">Saved — re-sync to update power zones</span>
+        </div>
+        <div id="vdot-row" class="ftp-row hidden">
+          <label class="ftp-label">Race:</label>
+          <select id="vdot-distance" class="vdot-select">
+            <option value="5000">5K</option>
+            <option value="10000">10K</option>
+            <option value="21097.5">Half</option>
+            <option value="42195">Marathon</option>
+          </select>
+          <input type="text" id="vdot-time" class="vdot-time-input" placeholder="17:45" maxlength="8" />
+          <button id="btn-save-vdot" class="btn btn-small">Save</button>
+          <span id="vdot-info" class="ftp-saved hidden"></span>
+        </div>
+        <div id="hr-sync-status" class="hr-sync-status hidden"></div>
+        <div id="threshold-row" class="threshold-row hidden">
+          <div class="threshold-mode-btns">
+            <button class="threshold-mode-btn active" data-mode="zones">Zones</button>
+            <button class="threshold-mode-btn" data-mode="threshold">Custom</button>
+          </div>
+          <div id="threshold-control" class="threshold-control hidden">
+            <span class="threshold-label">Cut at:</span>
+            <input type="range" id="threshold-slider" min="0" max="3" step="1" value="2" />
+            <span id="threshold-cut-label" class="threshold-cut-label"></span>
+          </div>
+        </div>
+        <div class="chart-area">
+          <div id="chart-legend-left" class="chart-legend-side"></div>
+          <div class="chart-container">
+            <canvas id="load-chart"></canvas>
+          </div>
+          <div id="chart-legend-right" class="chart-legend-side"></div>
+        </div>
+        <p id="load-empty" class="muted center hidden">No activity data yet. Sync your Strava activities to get started.</p>
+      </div>
+    </div>
+
+    <!-- ===================== TAB: TRAINING PLAN ===================== -->
+    <div id="tab-plan" class="tab-panel hidden">
+      <div class="panel-content">
+        <nav class="subtab-bar">
+          <button class="subtab-btn active" data-subtab="plan-entry">Plan</button>
+          <button class="subtab-btn" data-subtab="plan-actual">Actual</button>
+        </nav>
+
+        <div id="subtab-plan-entry" class="subtab-panel">
+          <p class="muted calendar-hint">Tap any day to set your planned distance, elevation, and time.</p>
+          <div id="calendar-plan" class="calendar-grid"></div>
+        </div>
+
+        <div id="subtab-plan-actual" class="subtab-panel hidden">
+          <p class="muted calendar-hint">Showing actual Strava activities for the 6-week window.</p>
+          <div id="calendar-actual" class="calendar-grid"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /app -->
+
+  <!-- ===================== DAY MODAL ===================== -->
+  <div id="day-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-title">Edit Plan</h3>
+        <button id="modal-close" class="modal-close">&times;</button>
+      </div>
+      <form id="day-form">
+        <div class="form-group">
+          <label>Distance (mi)</label>
+          <input type="number" id="modal-distance" class="text-input" min="0" step="0.1" placeholder="0.0" />
+        </div>
+        <div class="form-group">
+          <label>Elevation (ft)</label>
+          <input type="number" id="modal-elevation" class="text-input" min="0" step="1" placeholder="0" />
+        </div>
+        <div class="form-group">
+          <label>Time (minutes)</label>
+          <input type="number" id="modal-time" class="text-input" min="0" step="1" placeholder="0" />
+        </div>
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">Save</button>
+          <button type="button" id="modal-delete" class="btn btn-danger">Clear Day</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===================== TOAST ===================== -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
