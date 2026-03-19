@@ -31,6 +31,15 @@ echo "=========================================="
 echo " StayStacking Deploy — environment: $ENVIRONMENT"
 echo "=========================================="
 
+# Load environment-specific .env file (overrides generic .env)
+ENV_FILE_ENV="$REPO_ROOT/.env.$ENVIRONMENT"
+if [[ -f "$ENV_FILE_ENV" ]]; then
+  echo "Loading $ENV_FILE_ENV..."
+  set -a
+  source "$ENV_FILE_ENV"
+  set +a
+fi
+
 # --- Validate required variables ---
 MISSING=0
 for VAR in JWT_SECRET STRAVA_CLIENT_ID STRAVA_CLIENT_SECRET; do
@@ -45,7 +54,12 @@ done
 echo ""
 echo "[1/7] Provisioning storage (S3 + CloudFront)..."
 cd "$REPO_ROOT/terraform"
-terraform init -input=false
+terraform init -input=false -reconfigure \
+  -backend-config="bucket=staystacking-terraform-state-$ENVIRONMENT" \
+  -backend-config="key=terraform.tfstate" \
+  -backend-config="region=us-east-1" \
+  -backend-config="dynamodb_table=staystacking-terraform-locks-$ENVIRONMENT" \
+  -backend-config="profile=$AWS_PROFILE"
 
 terraform apply -target=module.storage -auto-approve -var="environment=$ENVIRONMENT"
 DEPLOY_BUCKET=$(terraform output -raw deploy_bucket_name)
