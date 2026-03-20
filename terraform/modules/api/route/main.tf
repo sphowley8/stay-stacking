@@ -76,6 +76,12 @@ resource "aws_api_gateway_integration_response" "options" {
   http_method = aws_api_gateway_method.options[0].http_method
   status_code = aws_api_gateway_method_response.options[0].status_code
 
+  depends_on = [aws_api_gateway_integration.options]
+
+  lifecycle {
+    replace_triggered_by = [aws_api_gateway_integration.options]
+  }
+
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers" = "'Authorization,Content-Type'"
     "method.response.header.Access-Control-Allow-Methods" = "'GET,POST,DELETE,OPTIONS'"

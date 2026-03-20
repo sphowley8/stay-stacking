@@ -457,6 +457,7 @@ resource "aws_api_gateway_deployment" "main" {
   # Force redeploy when any route changes
   triggers = {
     redeployment = sha1(jsonencode([
+      var.frontend_url,
       module.auth_strava_get,
       module.auth_callback_get,
       module.user_get,

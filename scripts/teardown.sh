@@ -13,6 +13,16 @@ set -euo pipefail
 ENVIRONMENT=${1:-prod}
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Load environment-specific .env file (exports AWS_PROFILE, FRONTEND_URL, ACM_CERTIFICATE_ARN)
+ENV_FILE="$REPO_ROOT/.env.$ENVIRONMENT"
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "ERROR: $ENV_FILE not found."
+  exit 1
+fi
+set -a
+source "$ENV_FILE"
+set +a
+
 echo "=========================================="
 echo " StayStacking TEARDOWN — environment: $ENVIRONMENT"
 echo " WARNING: This will destroy all resources!"
@@ -42,8 +52,17 @@ fi
 echo ""
 echo "Destroying infrastructure..."
 cd "$REPO_ROOT/terraform"
-terraform init -input=false
-terraform destroy -auto-approve -var="environment=$ENVIRONMENT"
+terraform init -input=false \
+  -backend-config="bucket=staystacking-terraform-state-$ENVIRONMENT" \
+  -backend-config="key=terraform.tfstate" \
+  -backend-config="region=us-east-1" \
+  -backend-config="dynamodb_table=staystacking-terraform-locks-$ENVIRONMENT" \
+  -backend-config="encrypt=true"
+
+terraform destroy -auto-approve \
+  -var="environment=$ENVIRONMENT" \
+  -var="frontend_url_override=$FRONTEND_URL" \
+  -var="acm_certificate_arn=$ACM_CERTIFICATE_ARN"
 
 echo ""
 echo "=========================================="

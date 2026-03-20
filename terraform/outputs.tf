@@ -1,6 +1,6 @@
 output "app_url" {
   description = "Custom domain URL for the frontend application"
-  value       = "https://stay-stacking.sean-howley.com"
+  value       = var.frontend_url_override
 }
 
 output "cloudfront_distribution_id" {
