@@ -142,6 +142,12 @@ echo "[6/7] Deploying frontend..."
 FRONTEND_TMP="$TMP_DIR/frontend"
 cp -r "$REPO_ROOT/frontend/." "$FRONTEND_TMP/"
 sed "s|__API_URL__|$API_URL|g" "$REPO_ROOT/frontend/app.js" > "$FRONTEND_TMP/app.js"
+# Staging banner: show in staging, hide in prod
+if [[ "$ENVIRONMENT" == "staging" ]]; then
+  sed -i '' "s|__STAGING_BANNER__|staging-banner|g" "$FRONTEND_TMP/index.html"
+else
+  sed -i '' "s|__STAGING_BANNER__|staging-banner hidden|g" "$FRONTEND_TMP/index.html"
+fi
 
 aws s3 sync "$FRONTEND_TMP/" "s3://$FRONTEND_BUCKET/" \
   --delete \
