@@ -52,7 +52,7 @@ fi
 echo ""
 echo "Destroying infrastructure..."
 cd "$REPO_ROOT/terraform"
-terraform init -input=false \
+terraform init -input=false -reconfigure \
   -backend-config="bucket=staystacking-terraform-state-$ENVIRONMENT" \
   -backend-config="key=terraform.tfstate" \
   -backend-config="region=us-east-1" \

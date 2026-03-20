@@ -62,7 +62,7 @@ TF_VARS=(
 echo ""
 echo "[1/7] Provisioning storage (S3 + CloudFront)..."
 cd "$REPO_ROOT/terraform"
-terraform init -input=false "${BACKEND_CONFIG[@]}"
+terraform init -input=false -reconfigure "${BACKEND_CONFIG[@]}"
 
 terraform apply -target=module.storage -auto-approve "${TF_VARS[@]}"
 DEPLOY_BUCKET=$(terraform output -raw deploy_bucket_name)
