@@ -4,7 +4,7 @@
   "description": "StayStacking costs Lambda — AWS Cost Explorer integration",
   "main": "index.js",
   "dependencies": {
-    "@aws-sdk/client-ce": "^3.0.0",
+    "@aws-sdk/client-cost-explorer": "^3.0.0",
     "@aws-sdk/client-secrets-manager": "^3.0.0",
     "jsonwebtoken": "^9.0.0"
   }

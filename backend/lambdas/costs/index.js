@@ -1,6 +1,6 @@
 'use strict';
 
-const { CostExplorerClient, GetCostAndUsageCommand } = require('@aws-sdk/client-ce');
+const { CostExplorerClient, GetCostAndUsageCommand } = require('@aws-sdk/client-cost-explorer');
 const { withAuth, response } = require('./shared/auth');
 
 // Cost Explorer is only available in us-east-1
