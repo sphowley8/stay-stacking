@@ -71,7 +71,7 @@ DEPLOY_BUCKET=$(terraform output -raw deploy_bucket_name)
 echo ""
 echo "[2/7] Packaging Lambda functions..."
 
-LAMBDAS=("auth" "user" "checkin" "activities" "training-plan")
+LAMBDAS=("auth" "user" "checkin" "activities" "training-plan" "costs")
 SHARED_DIR="$REPO_ROOT/backend/lambdas/shared"
 TMP_DIR=$(mktemp -d)
 

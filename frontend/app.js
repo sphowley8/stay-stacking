@@ -23,6 +23,8 @@ const state = {
   summaryFilter: ['Run'],
   modalDate: null,
   tenderToTouch: false,
+  costs: [],
+  costsChart: null,
 };
 
 // ============================================================
@@ -123,6 +125,7 @@ function activateTab(tabId) {
   if (tabId === 'checkin') loadCheckinTab();
   if (tabId === 'load')    loadLoadTab();
   if (tabId === 'plan')    loadPlanTab();
+  if (tabId === 'costs')   loadCostsTab();
 }
 
 function activateSubtab(subtabId) {
@@ -1464,3 +1467,144 @@ document.addEventListener('DOMContentLoaded', () => {
   // Init
   initAuth();
 });
+
+// ============================================================
+// COSTS TAB
+// ============================================================
+
+const SERVICE_COLORS = {
+  'AWS Lambda':                '#FF9900',
+  'Amazon DynamoDB':           '#3F48CC',
+  'Amazon API Gateway':        '#E7157B',
+  'Amazon CloudFront':         '#8C4FFF',
+  'Amazon Simple Storage Service (S3)': '#3F8624',
+  'AWS Secrets Manager':       '#DD344C',
+  'Amazon CloudWatch':         '#E05243',
+  'Amazon Route 53':           '#00A1C9',
+  'AWS Key Management Service':'#7AA116',
+};
+const COLOR_OTHER = '#888888';
+
+async function loadCostsTab() {
+  document.getElementById('costs-summary').innerHTML = '<p class="muted" style="padding:16px">Loading cost data…</p>';
+  try {
+    const data = await apiFetch('/costs');
+    state.costs = data.weeks || [];
+    renderCostsChart(data.services || []);
+    renderCostsSummary();
+  } catch (err) {
+    if (err.message !== 'unauthorized') {
+      document.getElementById('costs-summary').innerHTML = '<p class="muted" style="padding:16px;color:var(--coral)">Failed to load cost data.</p>';
+    }
+  }
+}
+
+function renderCostsChart(allServices) {
+  const ctx = document.getElementById('costs-chart').getContext('2d');
+  if (state.costsChart) { state.costsChart.destroy(); state.costsChart = null; }
+
+  const weeks = state.costs;
+  if (!weeks.length) return;
+
+  const labels = weeks.map(w => {
+    const d = new Date(w.start + 'T00:00:00Z');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  });
+
+  // Find services with any meaningful spend (>= $0.001 total across all weeks)
+  const activeSvcs = allServices.filter(svc => {
+    const total = weeks.reduce((s, w) => s + (w.byService[svc] || 0), 0);
+    return total >= 0.001;
+  });
+
+  // Split into named services and "Other"
+  const namedSvcs = activeSvcs.filter(s => SERVICE_COLORS[s]);
+  const otherSvcs  = activeSvcs.filter(s => !SERVICE_COLORS[s]);
+
+  const datasets = namedSvcs.map(svc => ({
+    label: svc.replace('Amazon ', '').replace('AWS ', ''),
+    data: weeks.map(w => parseFloat((w.byService[svc] || 0).toFixed(4))),
+    backgroundColor: SERVICE_COLORS[svc],
+    borderWidth: 0,
+    borderRadius: 2,
+    stack: 'costs',
+  }));
+
+  if (otherSvcs.length) {
+    datasets.push({
+      label: 'Other',
+      data: weeks.map(w => {
+        const v = otherSvcs.reduce((s, svc) => s + (w.byService[svc] || 0), 0);
+        return parseFloat(v.toFixed(4));
+      }),
+      backgroundColor: COLOR_OTHER,
+      borderWidth: 0,
+      borderRadius: 2,
+      stack: 'costs',
+    });
+  }
+
+  state.costsChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toFixed(4)}`,
+            footer: items => ` Total: $${items.reduce((s, i) => s + i.parsed.y, 0).toFixed(4)}`,
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false } },
+        y: {
+          stacked: true,
+          ticks: { callback: v => `$${v.toFixed(2)}` },
+          grid: { color: 'rgba(0,0,0,0.06)' },
+        },
+      },
+    },
+  });
+}
+
+function renderCostsSummary() {
+  const weeks = state.costs;
+  if (!weeks.length) {
+    document.getElementById('costs-summary').innerHTML = '<p class="muted" style="padding:16px">No cost data available.</p>';
+    return;
+  }
+
+  const totalAll = weeks.reduce((s, w) => s + w.total, 0);
+  const avgWeekly = totalAll / weeks.length;
+
+  const rows = weeks.slice().reverse().map(w => {
+    const start = new Date(w.start + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    const end   = new Date(w.end   + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    // Top 2 services by cost for this week
+    const top = Object.entries(w.byService)
+      .filter(([, v]) => v >= 0.001)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 2)
+      .map(([svc, v]) => `${svc.replace('Amazon ', '').replace('AWS ', '')}: $${v.toFixed(4)}`)
+      .join(', ');
+    return `<tr>
+      <td>${start}–${end}</td>
+      <td class="costs-total">$${w.total.toFixed(4)}</td>
+      <td class="costs-breakdown">${top || '—'}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('costs-summary').innerHTML = `
+    <div class="costs-summary-header">
+      <span>12-week total: <strong>$${totalAll.toFixed(4)}</strong></span>
+      <span>Weekly avg: <strong>$${avgWeekly.toFixed(4)}</strong></span>
+    </div>
+    <table class="costs-table">
+      <thead><tr><th>Week</th><th>Total</th><th>Top Services</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}

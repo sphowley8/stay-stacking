@@ -96,6 +96,20 @@ resource "aws_iam_role_policy" "secrets_access" {
   })
 }
 
+resource "aws_iam_role_policy" "cost_explorer_access" {
+  name = "staystacking-cost-explorer-${var.environment}"
+  role = aws_iam_role.lambda_exec.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ce:GetCostAndUsage"]
+      Resource = "*"
+    }]
+  })
+}
+
 # -------------------------------------------------------
 # CloudWatch Log Groups (7-day retention)
 # -------------------------------------------------------
@@ -122,6 +136,11 @@ resource "aws_cloudwatch_log_group" "activities" {
 
 resource "aws_cloudwatch_log_group" "training_plan" {
   name              = "/aws/lambda/staystacking-training-plan-${var.environment}"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "costs" {
+  name              = "/aws/lambda/staystacking-costs-${var.environment}"
   retention_in_days = 7
 }
 
@@ -199,6 +218,23 @@ resource "aws_lambda_function" "training_plan" {
   s3_key        = "training-plan.zip"
   environment { variables = local.common_env }
   depends_on    = [aws_cloudwatch_log_group.training_plan]
+}
+
+resource "aws_lambda_function" "costs" {
+  function_name = "staystacking-costs-${var.environment}"
+  runtime       = "nodejs20.x"
+  handler       = "index.handler"
+  role          = aws_iam_role.lambda_exec.arn
+  timeout       = 30
+  s3_bucket     = var.deploy_bucket_name
+  s3_key        = "costs.zip"
+  environment {
+    variables = {
+      SECRET_JWT_ARN = aws_secretsmanager_secret.jwt.arn
+      FRONTEND_URL   = var.frontend_url
+    }
+  }
+  depends_on = [aws_cloudwatch_log_group.costs]
 }
 
 # -------------------------------------------------------
@@ -403,6 +439,22 @@ module "training_plan_date_delete" {
   create_options = false
 }
 
+# /costs
+resource "aws_api_gateway_resource" "costs" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_rest_api.main.root_resource_id
+  path_part   = "costs"
+}
+
+module "costs_get" {
+  source       = "./route"
+  rest_api_id  = aws_api_gateway_rest_api.main.id
+  resource_id  = aws_api_gateway_resource.costs.id
+  http_method  = "GET"
+  lambda_arn   = aws_lambda_function.costs.invoke_arn
+  frontend_url = var.frontend_url
+}
+
 # -------------------------------------------------------
 # Lambda Permissions (allow API Gateway to invoke)
 # -------------------------------------------------------
@@ -447,6 +499,14 @@ resource "aws_lambda_permission" "training_plan" {
   source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
 }
 
+resource "aws_lambda_permission" "costs" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.costs.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.main.execution_arn}/*/*"
+}
+
 # -------------------------------------------------------
 # API Gateway Deployment
 # -------------------------------------------------------
@@ -468,7 +528,8 @@ resource "aws_api_gateway_deployment" "main" {
       module.activities_sync_post,
       module.training_plan_get,
       module.training_plan_date_post,
-      module.training_plan_date_delete
+      module.training_plan_date_delete,
+      module.costs_get,
     ]))
   }
 

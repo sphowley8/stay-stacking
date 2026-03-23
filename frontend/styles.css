@@ -1053,3 +1053,50 @@ html, body {
   .checkbox-grid { grid-template-columns: 1fr; }
   .form-row { flex-direction: column; }
 }
+
+/* ============================================================
+   COSTS TAB
+   ============================================================ */
+
+.costs-summary-header {
+  display: flex;
+  gap: 24px;
+  padding: 12px 4px 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.costs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin-top: 4px;
+}
+
+.costs-table th {
+  text-align: left;
+  padding: 6px 8px;
+  color: var(--muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+
+.costs-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.costs-total {
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--slate);
+}
+
+.costs-breakdown {
+  color: var(--muted);
+  font-size: 0.78rem;
+}

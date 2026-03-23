@@ -34,6 +34,7 @@
         <button class="tab-btn" data-tab="checkin" disabled title="Coming soon">Daily Check-In</button>
         <button class="tab-btn active" data-tab="load">Progressive Load</button>
         <button class="tab-btn" data-tab="plan" disabled title="Coming soon">Training Plan</button>
+        <button class="tab-btn" data-tab="costs">Costs</button>
       </nav>
       <button id="btn-sync" class="btn btn-sync" title="Sync Strava activities">Sync</button>
     </header>
@@ -224,6 +225,16 @@
           <p class="muted calendar-hint">Showing actual Strava activities for the 6-week window.</p>
           <div id="calendar-actual" class="calendar-grid"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- ===================== TAB: COSTS ===================== -->
+    <div id="tab-costs" class="tab-panel hidden">
+      <div class="panel-content">
+        <div class="chart-area">
+          <canvas id="costs-chart"></canvas>
+        </div>
+        <div id="costs-summary"></div>
       </div>
     </div>
 
