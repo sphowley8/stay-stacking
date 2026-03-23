@@ -31,18 +31,21 @@ echo "=========================================="
 echo " StayStacking — Seed Staging User"
 echo "=========================================="
 
-# --- Find prod user ---
+# --- Find Sean Howley's prod user record (Strava ID 17231934) ---
+SEAN_STRAVA_ID="17231934"
 echo ""
-echo "Finding user record in staystacking-users-prod..."
+echo "Finding Sean Howley's record (stravaId=$SEAN_STRAVA_ID) in staystacking-users-prod..."
 USER_ITEM=$(aws dynamodb scan \
   --table-name staystacking-users-prod \
   --profile "$PROD_PROFILE" \
   --region us-east-1 \
+  --filter-expression "stravaId = :sid" \
+  --expression-attribute-values "{\":sid\":{\"N\":\"$SEAN_STRAVA_ID\"}}" \
   --query 'Items[0]' \
   --output json)
 
 if [[ "$USER_ITEM" == "null" || -z "$USER_ITEM" ]]; then
-  echo "ERROR: No user found in staystacking-users-prod."
+  echo "ERROR: Sean Howley (stravaId=$SEAN_STRAVA_ID) not found in staystacking-users-prod."
   echo "Complete the Strava OAuth flow in prod first."
   exit 1
 fi
