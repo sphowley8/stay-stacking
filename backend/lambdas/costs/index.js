@@ -33,12 +33,12 @@ exports.handler = async (event) => {
         for (const group of day.Groups) {
           const svc = group.Keys[0];
           serviceSet.add(svc);
-          byService[svc] = parseFloat(parseFloat(group.Metrics.UnblendedCost.Amount).toFixed(4));
+          byService[svc] = parseFloat(parseFloat(group.Metrics.UnblendedCost.Amount).toFixed(2));
         }
         const total = Object.values(byService).reduce((s, v) => s + v, 0);
         return {
           date: day.TimePeriod.Start,
-          total: parseFloat(total.toFixed(4)),
+          total: parseFloat(total.toFixed(2)),
           byService,
         };
       });

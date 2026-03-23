@@ -1529,9 +1529,9 @@ function buildMonthlyBuckets(days) {
   }
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, byService]) => {
     const rounded = {};
-    for (const [svc, v] of Object.entries(byService)) rounded[svc] = parseFloat(v.toFixed(4));
+    for (const [svc, v] of Object.entries(byService)) rounded[svc] = parseFloat(v.toFixed(2));
     const total = Object.values(rounded).reduce((s, v) => s + v, 0);
-    return { label: month, total: parseFloat(total.toFixed(4)), byService: rounded };
+    return { label: month, total: parseFloat(total.toFixed(2)), byService: rounded };
   });
 }
 
@@ -1588,7 +1588,7 @@ function renderCostsChart() {
 
   const datasets = namedSvcs.map(svc => ({
     label: shortSvc(svc),
-    data: buckets.map(b => parseFloat((b.byService[svc] || 0).toFixed(4))),
+    data: buckets.map(b => parseFloat((b.byService[svc] || 0).toFixed(2))),
     backgroundColor: SERVICE_COLORS[svc],
     borderWidth: 0, borderRadius: 2, stack: 'costs',
   }));
@@ -1596,7 +1596,7 @@ function renderCostsChart() {
   if (otherSvcs.length) {
     datasets.push({
       label: 'Other',
-      data: buckets.map(b => parseFloat(otherSvcs.reduce((s, svc) => s + (b.byService[svc] || 0), 0).toFixed(4))),
+      data: buckets.map(b => parseFloat(otherSvcs.reduce((s, svc) => s + (b.byService[svc] || 0), 0).toFixed(2))),
       backgroundColor: COLOR_OTHER,
       borderWidth: 0, borderRadius: 2, stack: 'costs',
     });
@@ -1612,8 +1612,8 @@ function renderCostsChart() {
         legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
         tooltip: {
           callbacks: {
-            label: c => ` ${c.dataset.label}: $${c.parsed.y.toFixed(4)}`,
-            footer: items => ` Total: $${items.reduce((s, i) => s + i.parsed.y, 0).toFixed(4)}`,
+            label: c => ` ${c.dataset.label}: $${c.parsed.y.toFixed(2)}`,
+            footer: items => ` Total: $${items.reduce((s, i) => s + i.parsed.y, 0).toFixed(2)}`,
           },
         },
       },
@@ -1646,15 +1646,15 @@ function renderCostsSummary() {
       : new Date(b.date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
     const top = Object.entries(b.byService)
       .filter(([, v]) => v >= 0.001).sort(([, a], [, b]) => b - a).slice(0, 2)
-      .map(([svc, v]) => `${shortSvc(svc)}: $${v.toFixed(4)}`).join(', ');
-    return `<tr><td>${label}</td><td class="costs-total">$${b.total.toFixed(4)}</td><td class="costs-breakdown">${top || '—'}</td></tr>`;
+      .map(([svc, v]) => `${shortSvc(svc)}: $${v.toFixed(2)}`).join(', ');
+    return `<tr><td>${label}</td><td class="costs-total">$${b.total.toFixed(2)}</td><td class="costs-breakdown">${top || '—'}</td></tr>`;
   }).join('');
 
   const periodLabel = isMonthly ? '3-month total' : '30-day total';
   document.getElementById('costs-summary').innerHTML = `
     <div class="costs-summary-header">
-      <span>${periodLabel}: <strong>$${totalAll.toFixed(4)}</strong></span>
-      <span>${avgLabel}: <strong>$${avg.toFixed(4)}</strong></span>
+      <span>${periodLabel}: <strong>$${totalAll.toFixed(2)}</strong></span>
+      <span>${avgLabel}: <strong>$${avg.toFixed(2)}</strong></span>
     </div>
     <table class="costs-table">
       <thead><tr><th>${isMonthly ? 'Month' : 'Date'}</th><th>Total</th><th>Top Services</th></tr></thead>
