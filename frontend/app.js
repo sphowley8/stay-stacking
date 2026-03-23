@@ -58,14 +58,23 @@ function clearAuth() {
   showAuthScreen();
 }
 
+const IS_COSTS_PAGE = window.location.pathname === '/costs';
+
 function showAuthScreen() {
   document.getElementById('auth-screen').classList.remove('hidden');
   document.getElementById('app').classList.add('hidden');
+  document.getElementById('costs-page').classList.add('hidden');
 }
 
 function showApp() {
   document.getElementById('auth-screen').classList.add('hidden');
-  document.getElementById('app').classList.remove('hidden');
+  if (IS_COSTS_PAGE) {
+    document.getElementById('costs-page').classList.remove('hidden');
+    document.getElementById('app').classList.add('hidden');
+  } else {
+    document.getElementById('app').classList.remove('hidden');
+    document.getElementById('costs-page').classList.add('hidden');
+  }
 }
 
 async function initAuth() {
@@ -101,7 +110,11 @@ async function initAuth() {
   try {
     state.user = await apiFetch('/user');
     showApp();
-    activateTab(state.activeTab);
+    if (IS_COSTS_PAGE) {
+      loadCostsTab();
+    } else {
+      activateTab(state.activeTab);
+    }
   } catch {
     showAuthScreen();
   }
@@ -125,7 +138,6 @@ function activateTab(tabId) {
   if (tabId === 'checkin') loadCheckinTab();
   if (tabId === 'load')    loadLoadTab();
   if (tabId === 'plan')    loadPlanTab();
-  if (tabId === 'costs')   loadCostsTab();
 }
 
 function activateSubtab(subtabId) {

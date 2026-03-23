@@ -1055,8 +1055,28 @@ html, body {
 }
 
 /* ============================================================
-   COSTS TAB
+   COSTS PAGE
    ============================================================ */
+
+#costs-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.costs-back-link {
+  color: var(--sky);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.costs-back-link:hover {
+  background: rgba(181, 203, 216, 0.15);
+}
 
 .costs-summary-header {
   display: flex;
