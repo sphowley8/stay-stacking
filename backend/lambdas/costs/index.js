@@ -19,36 +19,46 @@ exports.handler = async (event) => {
       start.setDate(start.getDate() - 84);
       const startDate = start.toISOString().slice(0, 10);
 
+      // Fetch daily data (Cost Explorer does not support WEEKLY granularity)
       const result = await ceClient.send(new GetCostAndUsageCommand({
         TimePeriod: { Start: startDate, End: endDate },
-        Granularity: 'WEEKLY',
+        Granularity: 'DAILY',
         Metrics: ['UnblendedCost'],
         GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }],
       }));
 
-      // Collect all service names across all weeks
+      // Roll daily results up into Monday-anchored weeks
+      const weekMap = new Map(); // key: Monday date string
       const serviceSet = new Set();
-      for (const week of result.ResultsByTime) {
-        for (const group of week.Groups) {
-          serviceSet.add(group.Keys[0]);
+
+      for (const day of result.ResultsByTime) {
+        const d = new Date(day.TimePeriod.Start + 'T00:00:00Z');
+        // Find the Monday of this day's week (0=Sun, 1=Mon)
+        const dayOfWeek = d.getUTCDay();
+        const diff = (dayOfWeek === 0) ? -6 : 1 - dayOfWeek;
+        const monday = new Date(d);
+        monday.setUTCDate(d.getUTCDate() + diff);
+        const weekKey = monday.toISOString().slice(0, 10);
+
+        if (!weekMap.has(weekKey)) weekMap.set(weekKey, {});
+        const bucket = weekMap.get(weekKey);
+
+        for (const group of day.Groups) {
+          const svc = group.Keys[0];
+          serviceSet.add(svc);
+          bucket[svc] = (bucket[svc] || 0) + parseFloat(group.Metrics.UnblendedCost.Amount);
         }
       }
 
-      // Build a flat week-by-week structure
-      const weeks = result.ResultsByTime.map(week => {
-        const byCost = {};
-        for (const group of week.Groups) {
-          const svc = group.Keys[0];
-          byCost[svc] = parseFloat(group.Metrics.UnblendedCost.Amount);
-        }
-        const total = Object.values(byCost).reduce((s, v) => s + v, 0);
-        return {
-          start: week.TimePeriod.Start,
-          end:   week.TimePeriod.End,
-          total: parseFloat(total.toFixed(4)),
-          byService: byCost,
-        };
-      });
+      const weeks = [...weekMap.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([weekStart, byCost]) => {
+          // Round service values
+          const rounded = {};
+          for (const [svc, v] of Object.entries(byCost)) rounded[svc] = parseFloat(v.toFixed(4));
+          const total = Object.values(rounded).reduce((s, v) => s + v, 0);
+          return { start: weekStart, total: parseFloat(total.toFixed(4)), byService: rounded };
+        });
 
       return response(200, { weeks, services: [...serviceSet] });
     })(event);
