@@ -1058,6 +1058,30 @@ html, body {
    COSTS PAGE
    ============================================================ */
 
+.costs-view-toggle {
+  display: flex;
+  gap: 6px;
+  padding: 12px 4px 4px;
+}
+
+.costs-view-btn {
+  padding: 6px 18px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.costs-view-btn.active {
+  background: var(--earth);
+  color: var(--white);
+  border-color: var(--earth);
+}
+
 #costs-page {
   display: flex;
   flex-direction: column;

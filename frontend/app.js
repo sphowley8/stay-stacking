@@ -25,6 +25,7 @@ const state = {
   tenderToTouch: false,
   costs: [],
   costsChart: null,
+  costsView: 'daily',
 };
 
 // ============================================================
@@ -1481,29 +1482,33 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ============================================================
-// COSTS TAB
+// COSTS PAGE
 // ============================================================
 
 const SERVICE_COLORS = {
-  'AWS Lambda':                '#FF9900',
-  'Amazon DynamoDB':           '#3F48CC',
-  'Amazon API Gateway':        '#E7157B',
-  'Amazon CloudFront':         '#8C4FFF',
-  'Amazon Simple Storage Service (S3)': '#3F8624',
-  'AWS Secrets Manager':       '#DD344C',
-  'Amazon CloudWatch':         '#E05243',
-  'Amazon Route 53':           '#00A1C9',
-  'AWS Key Management Service':'#7AA116',
+  'AWS Lambda':                                '#FF9900',
+  'Amazon DynamoDB':                           '#3F48CC',
+  'Amazon API Gateway':                        '#E7157B',
+  'Amazon CloudFront':                         '#8C4FFF',
+  'Amazon Simple Storage Service (S3)':        '#3F8624',
+  'AWS Secrets Manager':                       '#DD344C',
+  'Amazon CloudWatch':                         '#E05243',
+  'Amazon Route 53':                           '#00A1C9',
+  'AWS Key Management Service':                '#7AA116',
 };
 const COLOR_OTHER = '#888888';
+
+function shortSvc(name) {
+  return name.replace('Amazon Simple Storage Service (S3)', 'S3')
+             .replace('Amazon ', '').replace('AWS ', '');
+}
 
 async function loadCostsTab() {
   document.getElementById('costs-summary').innerHTML = '<p class="muted" style="padding:16px">Loading cost data…</p>';
   try {
     const data = await apiFetch('/costs');
-    state.costs = data.weeks || [];
-    renderCostsChart(data.services || []);
-    renderCostsSummary();
+    state.costs = data.days || [];
+    renderCosts();
   } catch (err) {
     if (err.message !== 'unauthorized') {
       document.getElementById('costs-summary').innerHTML = '<p class="muted" style="padding:16px;color:var(--coral)">Failed to load cost data.</p>';
@@ -1511,48 +1516,89 @@ async function loadCostsTab() {
   }
 }
 
-function renderCostsChart(allServices) {
+// Build monthly buckets from daily data
+function buildMonthlyBuckets(days) {
+  const map = new Map();
+  for (const day of days) {
+    const key = day.date.slice(0, 7); // YYYY-MM
+    if (!map.has(key)) map.set(key, {});
+    const bucket = map.get(key);
+    for (const [svc, v] of Object.entries(day.byService)) {
+      bucket[svc] = (bucket[svc] || 0) + v;
+    }
+  }
+  return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, byService]) => {
+    const rounded = {};
+    for (const [svc, v] of Object.entries(byService)) rounded[svc] = parseFloat(v.toFixed(4));
+    const total = Object.values(rounded).reduce((s, v) => s + v, 0);
+    return { label: month, total: parseFloat(total.toFixed(4)), byService: rounded };
+  });
+}
+
+function renderCosts() {
+  // Inject toggle if not yet present
+  const chartArea = document.querySelector('#costs-page .chart-area');
+  if (!document.getElementById('costs-view-toggle')) {
+    const toggle = document.createElement('div');
+    toggle.id = 'costs-view-toggle';
+    toggle.className = 'costs-view-toggle';
+    toggle.innerHTML = `
+      <button class="costs-view-btn active" data-view="daily">Daily</button>
+      <button class="costs-view-btn" data-view="monthly">Monthly</button>`;
+    chartArea.parentElement.insertBefore(toggle, chartArea);
+    toggle.querySelectorAll('.costs-view-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.costsView = btn.dataset.view;
+        toggle.querySelectorAll('.costs-view-btn').forEach(b => b.classList.toggle('active', b === btn));
+        renderCostsChart();
+        renderCostsSummary();
+      });
+    });
+  }
+  renderCostsChart();
+  renderCostsSummary();
+}
+
+function renderCostsChart() {
   const ctx = document.getElementById('costs-chart').getContext('2d');
   if (state.costsChart) { state.costsChart.destroy(); state.costsChart = null; }
 
-  const weeks = state.costs;
-  if (!weeks.length) return;
+  const isMonthly = state.costsView === 'monthly';
+  const buckets = isMonthly
+    ? buildMonthlyBuckets(state.costs)
+    : state.costs.slice(-30); // last 30 days for daily view
 
-  const labels = weeks.map(w => {
-    const d = new Date(w.start + 'T00:00:00Z');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  if (!buckets.length) return;
+
+  const allSvcs = new Set(buckets.flatMap(b => Object.keys(b.byService)));
+  const activeSvcs = [...allSvcs].filter(svc => {
+    return buckets.reduce((s, b) => s + (b.byService[svc] || 0), 0) >= 0.001;
   });
-
-  // Find services with any meaningful spend (>= $0.001 total across all weeks)
-  const activeSvcs = allServices.filter(svc => {
-    const total = weeks.reduce((s, w) => s + (w.byService[svc] || 0), 0);
-    return total >= 0.001;
-  });
-
-  // Split into named services and "Other"
   const namedSvcs = activeSvcs.filter(s => SERVICE_COLORS[s]);
   const otherSvcs  = activeSvcs.filter(s => !SERVICE_COLORS[s]);
 
+  const labels = buckets.map(b => {
+    if (isMonthly) {
+      const [y, m] = b.label.split('-');
+      return new Date(+y, +m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    }
+    const d = new Date(b.date + 'T00:00:00Z');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  });
+
   const datasets = namedSvcs.map(svc => ({
-    label: svc.replace('Amazon ', '').replace('AWS ', ''),
-    data: weeks.map(w => parseFloat((w.byService[svc] || 0).toFixed(4))),
+    label: shortSvc(svc),
+    data: buckets.map(b => parseFloat((b.byService[svc] || 0).toFixed(4))),
     backgroundColor: SERVICE_COLORS[svc],
-    borderWidth: 0,
-    borderRadius: 2,
-    stack: 'costs',
+    borderWidth: 0, borderRadius: 2, stack: 'costs',
   }));
 
   if (otherSvcs.length) {
     datasets.push({
       label: 'Other',
-      data: weeks.map(w => {
-        const v = otherSvcs.reduce((s, svc) => s + (w.byService[svc] || 0), 0);
-        return parseFloat(v.toFixed(4));
-      }),
+      data: buckets.map(b => parseFloat(otherSvcs.reduce((s, svc) => s + (b.byService[svc] || 0), 0).toFixed(4))),
       backgroundColor: COLOR_OTHER,
-      borderWidth: 0,
-      borderRadius: 2,
-      stack: 'costs',
+      borderWidth: 0, borderRadius: 2, stack: 'costs',
     });
   }
 
@@ -1566,57 +1612,52 @@ function renderCostsChart(allServices) {
         legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
         tooltip: {
           callbacks: {
-            label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toFixed(4)}`,
+            label: c => ` ${c.dataset.label}: $${c.parsed.y.toFixed(4)}`,
             footer: items => ` Total: $${items.reduce((s, i) => s + i.parsed.y, 0).toFixed(4)}`,
           },
         },
       },
       scales: {
-        x: { stacked: true, grid: { display: false } },
-        y: {
-          stacked: true,
-          ticks: { callback: v => `$${v.toFixed(2)}` },
-          grid: { color: 'rgba(0,0,0,0.06)' },
-        },
+        x: { stacked: true, grid: { display: false }, ticks: { maxRotation: isMonthly ? 0 : 45 } },
+        y: { stacked: true, ticks: { callback: v => `$${v.toFixed(2)}` }, grid: { color: 'rgba(0,0,0,0.06)' } },
       },
     },
   });
 }
 
 function renderCostsSummary() {
-  const weeks = state.costs;
-  if (!weeks.length) {
+  const isMonthly = state.costsView === 'monthly';
+  const buckets = isMonthly
+    ? buildMonthlyBuckets(state.costs)
+    : state.costs.slice(-30);
+
+  if (!buckets.length) {
     document.getElementById('costs-summary').innerHTML = '<p class="muted" style="padding:16px">No cost data available.</p>';
     return;
   }
 
-  const totalAll = weeks.reduce((s, w) => s + w.total, 0);
-  const avgWeekly = totalAll / weeks.length;
+  const totalAll = buckets.reduce((s, b) => s + b.total, 0);
+  const avgLabel = isMonthly ? 'Monthly avg' : 'Daily avg';
+  const avg = totalAll / buckets.length;
 
-  const rows = weeks.slice().reverse().map(w => {
-    const start = new Date(w.start + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-    const end   = new Date(w.end   + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-    // Top 2 services by cost for this week
-    const top = Object.entries(w.byService)
-      .filter(([, v]) => v >= 0.001)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 2)
-      .map(([svc, v]) => `${svc.replace('Amazon ', '').replace('AWS ', '')}: $${v.toFixed(4)}`)
-      .join(', ');
-    return `<tr>
-      <td>${start}–${end}</td>
-      <td class="costs-total">$${w.total.toFixed(4)}</td>
-      <td class="costs-breakdown">${top || '—'}</td>
-    </tr>`;
+  const rows = buckets.slice().reverse().map(b => {
+    const label = isMonthly
+      ? (() => { const [y, m] = b.label.split('-'); return new Date(+y, +m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); })()
+      : new Date(b.date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+    const top = Object.entries(b.byService)
+      .filter(([, v]) => v >= 0.001).sort(([, a], [, b]) => b - a).slice(0, 2)
+      .map(([svc, v]) => `${shortSvc(svc)}: $${v.toFixed(4)}`).join(', ');
+    return `<tr><td>${label}</td><td class="costs-total">$${b.total.toFixed(4)}</td><td class="costs-breakdown">${top || '—'}</td></tr>`;
   }).join('');
 
+  const periodLabel = isMonthly ? '3-month total' : '30-day total';
   document.getElementById('costs-summary').innerHTML = `
     <div class="costs-summary-header">
-      <span>12-week total: <strong>$${totalAll.toFixed(4)}</strong></span>
-      <span>Weekly avg: <strong>$${avgWeekly.toFixed(4)}</strong></span>
+      <span>${periodLabel}: <strong>$${totalAll.toFixed(4)}</strong></span>
+      <span>${avgLabel}: <strong>$${avg.toFixed(4)}</strong></span>
     </div>
     <table class="costs-table">
-      <thead><tr><th>Week</th><th>Total</th><th>Top Services</th></tr></thead>
+      <thead><tr><th>${isMonthly ? 'Month' : 'Date'}</th><th>Total</th><th>Top Services</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
