@@ -24,8 +24,13 @@ const state = {
   modalDate: null,
   tenderToTouch: false,
   costs: [],
+  costsUsers: [],
+  costsLastUpdated: null,
   costsChart: null,
-  costsView: 'daily',
+  costsEnv: null,
+  liCharts: {},
+  liActiveCategory: 'aerobic',
+  liIndex: null,
 };
 
 // ============================================================
@@ -60,6 +65,28 @@ function clearAuth() {
 }
 
 const IS_COSTS_PAGE = window.location.pathname === '/costs';
+
+// ============================================================
+// HELP MODAL
+// ============================================================
+
+function showHelpModal() {
+  document.getElementById('help-modal').classList.remove('hidden');
+}
+
+function hideHelpModal() {
+  document.getElementById('help-modal').classList.add('hidden');
+}
+
+document.getElementById('btn-help').addEventListener('click', showHelpModal);
+document.getElementById('help-modal-close').addEventListener('click', hideHelpModal);
+document.getElementById('help-modal-cta').addEventListener('click', () => {
+  localStorage.setItem('onboarding_shown', '1');
+  hideHelpModal();
+});
+document.getElementById('help-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) hideHelpModal();
+});
 
 function showAuthScreen() {
   document.getElementById('auth-screen').classList.remove('hidden');
@@ -110,11 +137,18 @@ async function initAuth() {
 
   try {
     state.user = await apiFetch('/user');
+    const userName = [state.user.firstName, state.user.lastName].filter(Boolean).join(' ');
+    document.querySelectorAll('.staging-banner').forEach(el => {
+      el.textContent = userName ? `STAGING — ${userName}` : 'STAGING';
+    });
     showApp();
     if (IS_COSTS_PAGE) {
-      loadCostsTab();
+      initCostsPage();
     } else {
       activateTab(state.activeTab);
+      if (!localStorage.getItem('onboarding_shown')) {
+        setTimeout(showHelpModal, 400);
+      }
     }
   } catch {
     showAuthScreen();
@@ -410,6 +444,12 @@ const GRADE_ZONE_NAMES  = ['Flat', 'Easy Hill', 'Steep Hill', 'Power Hike'];
 const GRADE_ZONE_LABELS = ['\u22122\u20132%', '2\u20135%', '5\u201312%', '>12%'];
 const GRADE_GREENS      = ['#a5d6a7', '#ffe082', '#ffb74d', '#ef5350'];
 
+// Load index — HR zone weights for aerobic load (EPOC proxy: Z1=easy → Z5=max)
+const AEROBIC_HR_WEIGHTS = [1, 2, 3, 5, 8];
+// Weekly EWMA decay constants (adjusted from daily TrainingPeaks τ values for 7-day windows)
+const LI_α_CTL = 1 - Math.exp(-7 / 42); // ≈ 0.154 — 42-day fitness window
+const LI_α_ATL = 1 - Math.exp(-7 / 7);  // ≈ 0.632 — 7-day fatigue window
+
 function getActiveZoneMetric() {
   return ['zones', 'powerZones', 'paceZones'].find(m => state.chartToggles[m]);
 }
@@ -475,6 +515,7 @@ function renderLoadChart() {
     if (state.chart) { state.chart.destroy(); state.chart = null; }
     document.getElementById('chart-legend-left').innerHTML = '';
     document.getElementById('chart-legend-right').innerHTML = '';
+    renderLoadIndexSection();
     return;
   }
   empty.classList.add('hidden');
@@ -628,7 +669,7 @@ function renderLoadChart() {
       // Grade Zones: Power Hike (steepest) at bottom → Flat at top
       for (let z = GRADE_ZONE_NAMES.length - 1; z >= 0; z--) {
         datasets.push({
-          label: `${GRADE_ZONE_NAMES[z]} (hrs)`,
+          label: `G${z + 1} ${GRADE_ZONE_NAMES[z]} (hrs)`,
           yAxisID: 'y-gradeZones',
           stack: 'stack-gradeZones',
           data: weeks.map(w => {
@@ -718,6 +759,7 @@ function renderLoadChart() {
 
   renderChartLegends(activeMetrics, activityTypes);
   renderSummaryFilter(allActivityTypes);
+  renderLoadIndexSection();
 }
 
 function renderSummaryFilter(activityTypes) {
@@ -824,7 +866,7 @@ function legendHtml(metric, activityTypes) {
     return GRADE_ZONE_NAMES.map((name, i) =>
       `<div class="chart-legend-item">` +
       `<span class="chart-legend-swatch" style="background:${GRADE_GREENS[i]}"></span>` +
-      `<span>${name}: ${GRADE_ZONE_LABELS[i]} (hrs)</span>` +
+      `<span>G${i + 1} ${name}: ${GRADE_ZONE_LABELS[i]} (hrs)</span>` +
       `</div>`
     ).join('');
   }
@@ -869,6 +911,307 @@ function renderWeeklySummary() {
     `${Math.round(elevM * 3.28084)} ft`;
   document.getElementById('summary-time').textContent =
     formatDuration(timeSec);
+}
+
+// ============================================================
+// LOAD INDEX (ATL / CTL / TSB)
+// ============================================================
+
+function computeLoadIndex(weeks) {
+  const cats = ['aerobic', 'muscular', 'structural'];
+  const result = { aerobic: [], muscular: [], structural: [] };
+
+  for (const [wi, w] of weeks.entries()) {
+    // Aerobic: zone-weighted HR hours (EPOC proxy)
+    const aerobic = AEROBIC_HR_WEIGHTS.reduce((sum, wt, i) => {
+      return sum + ((Array.isArray(w.hrZones) ? (w.hrZones[i] || 0) : 0) / 3600) * wt;
+    }, 0);
+
+    // Muscular: high-intensity pace + power + power-hike time
+    const muscular = (
+      (Array.isArray(w.powerZones) ? w.powerZones.slice(2).reduce((a, v) => a + v, 0) : 0) / 3600 +
+      (Array.isArray(w.paceZones)  ? w.paceZones.slice(2).reduce((a, v) => a + v, 0)  : 0) / 3600 +
+      (Array.isArray(w.gradeZones) ? (w.gradeZones[3] || 0) : 0) / 3600 * 2
+    );
+
+    // Structural: impact + eccentric load
+    const runMiles   = (w.byType?.Run?.distance     || 0) / 1609.34;
+    const cycleMiles = (w.byType?.Cycling?.distance || 0) / 1609.34;
+    const g3Hrs      = (Array.isArray(w.gradeZones) ? (w.gradeZones[2] || 0) : 0) / 3600;
+    const structural = runMiles + g3Hrs * 0.1 + cycleMiles * 0.2;
+
+    const loads = { aerobic, muscular, structural };
+
+    for (const cat of cats) {
+      const load = loads[cat];
+      if (wi === 0) {
+        result[cat].push({ weekStart: w.weekStart, load: parseFloat(load.toFixed(2)), ctl: parseFloat(load.toFixed(1)), atl: parseFloat(load.toFixed(1)), tsb: 0, acwr: 1 });
+      } else {
+        const prev = result[cat][wi - 1];
+        const ctl  = LI_α_CTL * load + (1 - LI_α_CTL) * prev.ctl;
+        const atl  = LI_α_ATL * load + (1 - LI_α_ATL) * prev.atl;
+        const tsb  = prev.ctl - prev.atl;
+        const acwr = ctl > 0 ? parseFloat((atl / ctl).toFixed(2)) : null;
+        result[cat].push({ weekStart: w.weekStart, load: parseFloat(load.toFixed(2)), ctl: parseFloat(ctl.toFixed(1)), atl: parseFloat(atl.toFixed(1)), tsb: parseFloat(tsb.toFixed(1)), acwr });
+      }
+    }
+  }
+
+  return result;
+}
+
+const LI_CAT_COLORS = { aerobic: '#c62828', muscular: '#6a1b9a', structural: '#1565c0' };
+const LI_CAT_LABELS = { aerobic: 'Aerobic', muscular: 'Muscular', structural: 'Structural' };
+
+function renderLoadIndexSection() {
+  const section = document.getElementById('load-index-section');
+  const weeks = state.activities;
+  if (!weeks.length) { section.classList.add('hidden'); return; }
+
+  state.liIndex = computeLoadIndex(weeks);
+  section.classList.remove('hidden');
+
+  // Wire category toggle buttons (only on first render — check for existing listeners via flag)
+  if (!section.dataset.listenersAttached) {
+    section.querySelectorAll('.load-cat-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.liActiveCategory = btn.dataset.cat;
+        renderLoadIndexCard();
+      });
+    });
+    section.dataset.listenersAttached = 'true';
+  }
+
+  renderLoadIndexCard();
+  renderLoadMatrix();
+}
+
+function renderLoadIndexCard() {
+  const cat = state.liActiveCategory;
+  const series = state.liIndex[cat];
+  const last = series[series.length - 1] || {};
+  const { ctl = 0, atl = 0, tsb = 0, acwr = null } = last;
+  const color = LI_CAT_COLORS[cat];
+
+  // Update toggle button states
+  document.querySelectorAll('.load-cat-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cat === cat);
+  });
+
+  // Category label
+  document.getElementById('li-cat-label').textContent = LI_CAT_LABELS[cat];
+
+  // Badge — ACWR overrides TSB when in danger zone
+  let badgeClass, badgeText;
+  if (acwr !== null && acwr > 1.5)      { badgeClass = 'tsb-fatigued'; badgeText = 'Injury Risk'; }
+  else if (acwr !== null && acwr > 1.3) { badgeClass = 'tsb-training'; badgeText = 'Caution'; }
+  else if (tsb > 10)                    { badgeClass = 'tsb-peak';     badgeText = 'Peak Form'; }
+  else if (tsb >= 0)                    { badgeClass = 'tsb-fresh';    badgeText = 'Fresh'; }
+  else if (tsb >= -10)                  { badgeClass = 'tsb-training'; badgeText = 'Training'; }
+  else                                  { badgeClass = 'tsb-fatigued'; badgeText = 'Fatigued'; }
+
+  const badge = document.getElementById('li-badge');
+  badge.className = `tsb-badge ${badgeClass}`;
+  badge.textContent = badgeText;
+
+  document.getElementById('li-ctl').textContent = ctl.toFixed(1);
+  document.getElementById('li-atl').textContent = atl.toFixed(1);
+
+  const tsbEl = document.getElementById('li-tsb');
+  tsbEl.textContent = (tsb >= 0 ? '+' : '') + tsb.toFixed(1);
+  tsbEl.className = `li-value ${tsb >= 0 ? 'li-tsb-pos' : 'li-tsb-neg'}`;
+
+  // ACWR
+  const acwrEl = document.getElementById('li-acwr');
+  if (acwr === null) {
+    acwrEl.textContent = '—';
+    acwrEl.className = 'li-value';
+  } else {
+    acwrEl.textContent = acwr.toFixed(2);
+    acwrEl.className = acwr > 1.5 ? 'li-value li-acwr-danger'
+                     : acwr > 1.3 ? 'li-value li-acwr-caution'
+                     : acwr < 0.8 ? 'li-value li-acwr-low'
+                     :              'li-value li-acwr-ok';
+  }
+
+  const TSB_COLOR = '#ffa91c';
+
+  // Left legend — CTL (solid) / ATL (dashed) / TSB (dotted amber)
+  document.getElementById('li-legend-left').innerHTML =
+    `<div class="chart-legend-item">` +
+    `<span class="chart-legend-swatch li-swatch-solid" style="background:${color}"></span>` +
+    `<span>CTL (Fitness)</span></div>` +
+    `<div class="chart-legend-item">` +
+    `<span class="chart-legend-swatch li-swatch-dashed" style="border-color:${color}"></span>` +
+    `<span>ATL (Fatigue)</span></div>` +
+    `<div class="chart-legend-item">` +
+    `<span class="chart-legend-swatch li-swatch-dotted" style="border-color:${TSB_COLOR}"></span>` +
+    `<span>TSB (Form)</span></div>`;
+
+  // Chart — destroy and redraw
+  if (state.liCharts.main) {
+    state.liCharts.main.destroy();
+    delete state.liCharts.main;
+  }
+
+  const labels  = series.map(s => formatWeekLabel(s.weekStart));
+  const ctlData = series.map(s => s.ctl);
+  const atlData = series.map(s => s.atl);
+  const tsbData = series.map(s => s.tsb);
+
+  const ctx = document.querySelector('.li-sparkline-wrap canvas').getContext('2d');
+  state.liCharts.main = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'CTL',
+          data: ctlData,
+          borderColor: color,
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          yAxisID: 'y',
+        },
+        {
+          label: 'ATL',
+          data: atlData,
+          borderColor: color,
+          backgroundColor: 'transparent',
+          borderWidth: 1.5,
+          borderDash: [4, 3],
+          pointRadius: 0,
+          tension: 0.3,
+          yAxisID: 'y',
+        },
+        {
+          label: 'TSB',
+          data: tsbData,
+          borderColor: TSB_COLOR,
+          backgroundColor: 'transparent',
+          borderWidth: 1.5,
+          borderDash: [2, 2],
+          pointRadius: 0,
+          tension: 0.3,
+          yAxisID: 'y-tsb',
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: {
+        x: {
+          display: true,
+          grid: { display: false },
+          ticks: {
+            color: '#7a8f9c',
+            font: { size: 10 },
+            maxRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: 6,
+          },
+        },
+        y: {
+          display: true,
+          position: 'left',
+          beginAtZero: false,
+          grid: { color: 'rgba(181, 203, 216, 0.4)' },
+          ticks: {
+            color: color,
+            font: { size: 10 },
+            maxTicksLimit: 5,
+          },
+          title: {
+            display: true,
+            text: 'Load',
+            color: '#7a8f9c',
+            font: { size: 10 },
+          },
+        },
+        'y-tsb': {
+          display: true,
+          position: 'right',
+          beginAtZero: false,
+          grid: { drawOnChartArea: false },
+          ticks: {
+            color: '#ffa91c',
+            font: { size: 10 },
+            maxTicksLimit: 5,
+          },
+          title: {
+            display: true,
+            text: 'Form',
+            color: '#ffa91c',
+            font: { size: 10 },
+          },
+        },
+      },
+    },
+  });
+}
+
+function renderLoadMatrix() {
+  const rows = [
+    { metric: 'HR Z1 time (hrs)',      aerobic: '\u00d71', muscular: '\u2014',      structural: '\u2014'    },
+    { metric: 'HR Z2 time (hrs)',      aerobic: '\u00d72', muscular: '\u2014',      structural: '\u2014'    },
+    { metric: 'HR Z3 time (hrs)',      aerobic: '\u00d73', muscular: '\u2014',      structural: '\u2014'    },
+    { metric: 'HR Z4 time (hrs)',      aerobic: '\u00d75', muscular: '\u2014',      structural: '\u2014'    },
+    { metric: 'HR Z5 time (hrs)',      aerobic: '\u00d78', muscular: '\u2014',      structural: '\u2014'    },
+    { metric: 'Pace Z3\u2013Z7 time (hrs)',  aerobic: '\u2014',      muscular: '\u00d71', structural: '\u2014'    },
+    { metric: 'Power Z3\u2013Z7 time (hrs)', aerobic: '\u2014',      muscular: '\u00d71', structural: '\u2014'    },
+    { metric: 'Grade G4 time (hrs)',   aerobic: '\u2014',      muscular: '\u00d72', structural: '\u2014'    },
+    { metric: 'Running distance (mi)', aerobic: '\u2014',      muscular: '\u2014',      structural: '\u00d71'  },
+    { metric: 'Grade G3 time (hrs)',   aerobic: '\u2014',      muscular: '\u2014',      structural: '\u00d70.1'},
+    { metric: 'Cycling distance (mi)', aerobic: '\u2014',      muscular: '\u2014',      structural: '\u00d70.2'},
+  ];
+
+  document.getElementById('load-matrix-table').innerHTML = `
+    <table class="load-matrix">
+      <thead><tr><th>Metric</th><th>Aerobic</th><th>Muscular</th><th>Structural</th></tr></thead>
+      <tbody>${rows.map(r => `<tr>
+        <td>${r.metric}</td>
+        <td class="${r.aerobic !== '\u2014' ? 'load-matrix-active' : ''}">${r.aerobic}</td>
+        <td class="${r.muscular !== '\u2014' ? 'load-matrix-active' : ''}">${r.muscular}</td>
+        <td class="${r.structural !== '\u2014' ? 'load-matrix-active' : ''}">${r.structural}</td>
+      </tr>`).join('')}</tbody>
+    </table>
+    <div class="load-formula-section">
+      <div class="load-formula-item">
+        <span class="load-formula-term">CTL</span>
+        <span class="load-formula-name">Chronic Training Load &mdash; Fitness</span>
+        <span class="load-formula-desc">A 42-day exponential moving average of your weekly load. Represents long-term fitness built over time. Rises slowly with consistent training, falls slowly with rest. The formula only references last week because an EMA is recursive &mdash; CTL<sub>last week</sub> already contains the weighted contribution of every prior week. The 42-day window means a week&rsquo;s load decays to ~37% of its value after 42 days, not that only 6 weeks of history are used.</span>
+        <code class="load-formula-eq">CTL = 0.154 &times; load<sub>this week</sub> + 0.846 &times; CTL<sub>last week</sub></code>
+      </div>
+      <div class="load-formula-item">
+        <span class="load-formula-term">ATL</span>
+        <span class="load-formula-name">Acute Training Load &mdash; Fatigue</span>
+        <span class="load-formula-desc">A 7-day exponential moving average of your weekly load. Reflects short-term fatigue. Rises quickly after a hard week and drops quickly with rest.</span>
+        <code class="load-formula-eq">ATL = 0.632 &times; load<sub>this week</sub> + 0.368 &times; ATL<sub>last week</sub></code>
+      </div>
+      <div class="load-formula-item">
+        <span class="load-formula-term">TSB</span>
+        <span class="load-formula-name">Training Stress Balance &mdash; Form</span>
+        <span class="load-formula-desc">The difference between last week&rsquo;s fitness and fatigue. Positive means you are rested and ready to perform. Negative means you are carrying fatigue from recent training.</span>
+        <code class="load-formula-eq">TSB = CTL<sub>last week</sub> &minus; ATL<sub>last week</sub></code>
+      </div>
+      <div class="load-formula-item">
+        <span class="load-formula-term">ACWR</span>
+        <span class="load-formula-name">Acute:Chronic Workload Ratio &mdash; Injury Risk</span>
+        <span class="load-formula-desc">The ratio of short-term fatigue to long-term fitness. Developed by Tim Gabbett, it is the most clinically validated injury risk signal in load monitoring. A value near 1.0 means your recent training matches your fitness base. Spikes above 1.5 &mdash; common after returning from a rest period or suddenly ramping volume &mdash; are strongly associated with soft tissue injury.</span>
+        <code class="load-formula-eq">ACWR = ATL &divide; CTL</code>
+        <div class="acwr-thresholds">
+          <span class="acwr-threshold acwr-threshold-low">< 0.8 &mdash; Undertraining</span>
+          <span class="acwr-threshold acwr-threshold-ok">0.8 &ndash; 1.3 &mdash; Sweet spot</span>
+          <span class="acwr-threshold acwr-threshold-caution">1.3 &ndash; 1.5 &mdash; Caution</span>
+          <span class="acwr-threshold acwr-threshold-danger">> 1.5 &mdash; Injury Risk</span>
+        </div>
+      </div>
+    </div>`;
 }
 
 // ============================================================
@@ -1468,6 +1811,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Sync button
   document.getElementById('btn-sync').addEventListener('click', syncActivities);
+  document.getElementById('btn-sign-out').addEventListener('click', clearAuth);
 
   // Day modal
   document.getElementById('day-form').addEventListener('submit', saveDayModal);
@@ -1484,6 +1828,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================================
 // COSTS PAGE
 // ============================================================
+
+const COSTS_PASSCODE = 'stayhumblestackvert';
+const COSTS_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CURRENT_ENV = window.location.hostname.includes('staging') ? 'staging' : 'prod';
+
+function costsCacheKey(env) { return `costs_cache_v3_${env}`; }
 
 const SERVICE_COLORS = {
   'AWS Lambda':                                '#FF9900',
@@ -1503,12 +1853,83 @@ function shortSvc(name) {
              .replace('Amazon ', '').replace('AWS ', '');
 }
 
+function initCostsPage() {
+  const unlocked = sessionStorage.getItem('costs_unlocked') === '1';
+  if (unlocked) {
+    showCostsContent();
+  } else {
+    showCostsLock();
+  }
+}
+
+function showCostsLock() {
+  document.getElementById('costs-lock').classList.remove('hidden');
+  document.getElementById('costs-content').classList.add('hidden');
+
+  const input = document.getElementById('costs-passcode-input');
+  const btn = document.getElementById('costs-passcode-submit');
+  const err = document.getElementById('costs-passcode-error');
+
+  function attempt() {
+    if (input.value === COSTS_PASSCODE) {
+      sessionStorage.setItem('costs_unlocked', '1');
+      showCostsContent();
+    } else {
+      err.classList.remove('hidden');
+      input.value = '';
+      input.focus();
+    }
+  }
+
+  btn.addEventListener('click', attempt);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') attempt(); });
+  input.focus();
+}
+
+function showCostsContent() {
+  document.getElementById('costs-lock').classList.add('hidden');
+  document.getElementById('costs-content').classList.remove('hidden');
+
+  // Initialize env state and wire toggle buttons
+  if (!state.costsEnv) state.costsEnv = CURRENT_ENV;
+  document.querySelectorAll('.costs-env-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.env === state.costsEnv);
+    btn.addEventListener('click', () => {
+      if (btn.dataset.env === state.costsEnv) return;
+      state.costsEnv = btn.dataset.env;
+      document.querySelectorAll('.costs-env-btn').forEach(b => b.classList.toggle('active', b.dataset.env === state.costsEnv));
+      loadCostsTab();
+    });
+  });
+
+  loadCostsTab();
+}
+
 async function loadCostsTab() {
+  const env = state.costsEnv || CURRENT_ENV;
+  const cacheKey = costsCacheKey(env);
   document.getElementById('costs-summary').innerHTML = '<p class="muted" style="padding:16px">Loading cost data…</p>';
   try {
-    const data = await apiFetch('/costs');
-    state.costs = data.days || [];
-    renderCosts();
+    // Check localStorage cache (24h TTL)
+    let data;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Date.now() - parsed.ts < COSTS_CACHE_TTL_MS) {
+        data = parsed.data;
+      }
+    }
+    if (!data) {
+      data = await apiFetch(`/costs?env=${env}`);
+      localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data }));
+    }
+    state.costs = data.months || [];
+    state.costsUsers = data.users || [];
+    const cacheEntry = JSON.parse(localStorage.getItem(cacheKey));
+    state.costsLastUpdated = cacheEntry ? new Date(cacheEntry.ts) : new Date();
+    renderCostsChart();
+    renderCostsSummary();
+    renderCostsUsers();
   } catch (err) {
     if (err.message !== 'unauthorized') {
       document.getElementById('costs-summary').innerHTML = '<p class="muted" style="padding:16px;color:var(--coral)">Failed to load cost data.</p>';
@@ -1516,58 +1937,11 @@ async function loadCostsTab() {
   }
 }
 
-// Build monthly buckets from daily data
-function buildMonthlyBuckets(days) {
-  const map = new Map();
-  for (const day of days) {
-    const key = day.date.slice(0, 7); // YYYY-MM
-    if (!map.has(key)) map.set(key, {});
-    const bucket = map.get(key);
-    for (const [svc, v] of Object.entries(day.byService)) {
-      bucket[svc] = (bucket[svc] || 0) + v;
-    }
-  }
-  return [...map.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, byService]) => {
-    const rounded = {};
-    for (const [svc, v] of Object.entries(byService)) rounded[svc] = parseFloat(v.toFixed(2));
-    const total = Object.values(rounded).reduce((s, v) => s + v, 0);
-    return { label: month, total: parseFloat(total.toFixed(2)), byService: rounded };
-  });
-}
-
-function renderCosts() {
-  // Inject toggle if not yet present
-  const chartArea = document.querySelector('#costs-page .chart-area');
-  if (!document.getElementById('costs-view-toggle')) {
-    const toggle = document.createElement('div');
-    toggle.id = 'costs-view-toggle';
-    toggle.className = 'costs-view-toggle';
-    toggle.innerHTML = `
-      <button class="costs-view-btn active" data-view="daily">Daily</button>
-      <button class="costs-view-btn" data-view="monthly">Monthly</button>`;
-    chartArea.parentElement.insertBefore(toggle, chartArea);
-    toggle.querySelectorAll('.costs-view-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        state.costsView = btn.dataset.view;
-        toggle.querySelectorAll('.costs-view-btn').forEach(b => b.classList.toggle('active', b === btn));
-        renderCostsChart();
-        renderCostsSummary();
-      });
-    });
-  }
-  renderCostsChart();
-  renderCostsSummary();
-}
-
 function renderCostsChart() {
   const ctx = document.getElementById('costs-chart').getContext('2d');
   if (state.costsChart) { state.costsChart.destroy(); state.costsChart = null; }
 
-  const isMonthly = state.costsView === 'monthly';
-  const buckets = isMonthly
-    ? buildMonthlyBuckets(state.costs)
-    : state.costs.slice(-30); // last 30 days for daily view
-
+  const buckets = state.costs; // monthly buckets from API
   if (!buckets.length) return;
 
   const allSvcs = new Set(buckets.flatMap(b => Object.keys(b.byService)));
@@ -1578,12 +1952,8 @@ function renderCostsChart() {
   const otherSvcs  = activeSvcs.filter(s => !SERVICE_COLORS[s]);
 
   const labels = buckets.map(b => {
-    if (isMonthly) {
-      const [y, m] = b.label.split('-');
-      return new Date(+y, +m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-    }
-    const d = new Date(b.date + 'T00:00:00Z');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+    const [y, m] = b.month.split('-');
+    return new Date(+y, +m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
   });
 
   const datasets = namedSvcs.map(svc => ({
@@ -1618,7 +1988,7 @@ function renderCostsChart() {
         },
       },
       scales: {
-        x: { stacked: true, grid: { display: false }, ticks: { maxRotation: isMonthly ? 0 : 45 } },
+        x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 0 } },
         y: { stacked: true, ticks: { callback: v => `$${v.toFixed(2)}` }, grid: { color: 'rgba(0,0,0,0.06)' } },
       },
     },
@@ -1626,38 +1996,52 @@ function renderCostsChart() {
 }
 
 function renderCostsSummary() {
-  const isMonthly = state.costsView === 'monthly';
-  const buckets = isMonthly
-    ? buildMonthlyBuckets(state.costs)
-    : state.costs.slice(-30);
-
+  const buckets = state.costs;
   if (!buckets.length) {
     document.getElementById('costs-summary').innerHTML = '<p class="muted" style="padding:16px">No cost data available.</p>';
     return;
   }
 
   const totalAll = buckets.reduce((s, b) => s + b.total, 0);
-  const avgLabel = isMonthly ? 'Monthly avg' : 'Daily avg';
   const avg = totalAll / buckets.length;
 
   const rows = buckets.slice().reverse().map(b => {
-    const label = isMonthly
-      ? (() => { const [y, m] = b.label.split('-'); return new Date(+y, +m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }); })()
-      : new Date(b.date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+    const [y, m] = b.month.split('-');
+    const label = new Date(+y, +m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
     const top = Object.entries(b.byService)
       .filter(([, v]) => v >= 0.001).sort(([, a], [, b]) => b - a).slice(0, 2)
       .map(([svc, v]) => `${shortSvc(svc)}: $${v.toFixed(2)}`).join(', ');
     return `<tr><td>${label}</td><td class="costs-total">$${b.total.toFixed(2)}</td><td class="costs-breakdown">${top || '—'}</td></tr>`;
   }).join('');
 
-  const periodLabel = isMonthly ? '3-month total' : '30-day total';
   document.getElementById('costs-summary').innerHTML = `
     <div class="costs-summary-header">
-      <span>${periodLabel}: <strong>$${totalAll.toFixed(2)}</strong></span>
-      <span>${avgLabel}: <strong>$${avg.toFixed(2)}</strong></span>
+      <span>12-month total: <strong>$${totalAll.toFixed(2)}</strong></span>
+      <span>Monthly avg: <strong>$${avg.toFixed(2)}</strong></span>
+      ${state.costsLastUpdated ? `<span class="costs-last-updated">Last updated: ${state.costsLastUpdated.toLocaleString()}</span>` : ''}
     </div>
     <table class="costs-table">
-      <thead><tr><th>${isMonthly ? 'Month' : 'Date'}</th><th>Total</th><th>Top Services</th></tr></thead>
+      <thead><tr><th>Month</th><th>Total</th><th>Top Services</th></tr></thead>
       <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function renderCostsUsers() {
+  const users = state.costsUsers || [];
+  const rows = users.map(u => {
+    const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || '—';
+    const synced = u.lastSynced
+      ? new Date(u.lastSynced).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+      : '—';
+    return `<tr><td>${name}</td><td class="costs-breakdown">${u.stravaId || u.userId}</td><td class="costs-breakdown">${synced}</td></tr>`;
+  }).join('');
+
+  document.getElementById('costs-users').innerHTML = `
+    <div class="costs-summary-header" style="margin-top:24px">
+      <span>Users: <strong>${users.length}</strong></span>
+    </div>
+    <table class="costs-table">
+      <thead><tr><th>Name</th><th>Strava ID</th><th>Last Synced</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="3" class="muted">No users found.</td></tr>'}</tbody>
     </table>`;
 }

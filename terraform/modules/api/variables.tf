@@ -52,3 +52,13 @@ variable "deploy_bucket_name" {
   description = "S3 bucket name for Lambda deployment packages"
   type        = string
 }
+
+variable "peer_account_id" {
+  description = "AWS account ID of the peer environment (for cross-account costs)"
+  type        = string
+}
+
+variable "peer_environment" {
+  description = "Name of the peer environment (staging or prod)"
+  type        = string
+}

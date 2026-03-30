@@ -31,11 +31,12 @@
     <header class="app-header">
       <span class="brand-small">StayStacking</span>
       <nav class="tab-bar">
-        <button class="tab-btn" data-tab="checkin" disabled title="Coming soon">Daily Check-In</button>
+        <button class="tab-btn" data-tab="checkin" disabled title="Coming soon">Daily Check-In <span class="coming-soon-badge">Coming Soon</span></button>
         <button class="tab-btn active" data-tab="load">Progressive Load</button>
-        <button class="tab-btn" data-tab="plan" disabled title="Coming soon">Training Plan</button>
+        <button class="tab-btn" data-tab="plan" disabled title="Coming soon">Training Plan <span class="coming-soon-badge">Coming Soon</span></button>
       </nav>
       <button id="btn-sync" class="btn btn-sync" title="Sync Strava activities">Sync</button>
+      <button id="btn-sign-out" class="btn btn-sign-out" title="Sign out and reauthorize Strava">Sign out</button>
     </header>
 
     <!-- ===================== TAB: DAILY CHECK-IN ===================== -->
@@ -204,6 +205,39 @@
           <div id="chart-legend-right" class="chart-legend-side"></div>
         </div>
         <p id="load-empty" class="muted center hidden">No activity data yet. Sync your Strava activities to get started.</p>
+
+        <!-- ===================== LOAD INDEX ===================== -->
+        <div id="load-index-section" class="load-index-section hidden">
+          <div class="load-index-controls">
+            <button class="load-cat-btn active" data-cat="aerobic">Aerobic</button>
+            <button class="load-cat-btn" data-cat="muscular">Muscular</button>
+            <button class="load-cat-btn" data-cat="structural">Structural</button>
+          </div>
+          <div class="load-index-card">
+            <div class="load-index-card-header">
+              <span class="load-index-cat" id="li-cat-label">Aerobic</span>
+              <span class="tsb-badge" id="li-badge"></span>
+            </div>
+            <div class="load-index-numbers">
+              <div class="li-row"><span class="li-label">Fitness (CTL)</span><span id="li-ctl" class="li-value">—</span></div>
+              <div class="li-row"><span class="li-label">Fatigue (ATL)</span><span id="li-atl" class="li-value">—</span></div>
+              <div class="li-row"><span class="li-label">Form (TSB)</span><span id="li-tsb" class="li-value">—</span></div>
+              <div class="li-row li-row-acwr"><span class="li-label">Injury Risk (ACWR)</span><span id="li-acwr" class="li-value">—</span></div>
+            </div>
+          </div>
+          <div class="chart-area">
+            <div id="li-legend-left" class="chart-legend-side"></div>
+            <div class="chart-container">
+              <div class="li-sparkline-wrap"><canvas id="li-chart"></canvas></div>
+            </div>
+            <div class="chart-legend-side"></div>
+          </div>
+          <div class="load-matrix-section">
+            <h4 class="load-matrix-title">How Load Is Calculated</h4>
+            <div id="load-matrix-table"></div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -236,11 +270,73 @@
       <a href="/" class="costs-back-link">&larr; Back</a>
       <span class="brand-small">Costs</span>
     </header>
-    <div class="panel-content">
-      <div class="chart-area">
-        <canvas id="costs-chart"></canvas>
+
+    <!-- Password gate (shown until correct passcode entered) -->
+    <div id="costs-lock" class="costs-lock hidden">
+      <div class="costs-lock-card">
+        <p class="costs-lock-label">Enter passcode to view cost data</p>
+        <input type="password" id="costs-passcode-input" class="costs-passcode-input" placeholder="Passcode" autocomplete="off" />
+        <button id="costs-passcode-submit" class="btn btn-primary">Unlock</button>
+        <p id="costs-passcode-error" class="costs-passcode-error hidden">Incorrect passcode.</p>
       </div>
-      <div id="costs-summary"></div>
+    </div>
+
+    <!-- Costs content (shown after unlock) -->
+    <div id="costs-content" class="hidden">
+      <div class="panel-content">
+        <div class="costs-env-toggle">
+          <button class="costs-env-btn" data-env="prod">Prod</button>
+          <button class="costs-env-btn" data-env="staging">Staging</button>
+        </div>
+        <div class="chart-area">
+          <canvas id="costs-chart"></canvas>
+        </div>
+        <div id="costs-summary"></div>
+        <div id="costs-users"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== HELP BUTTON ===================== -->
+  <button id="btn-help" class="help-btn" title="How to use StayStacking">?</button>
+
+  <!-- ===================== HELP MODAL ===================== -->
+  <div id="help-modal" class="modal-overlay hidden">
+    <div class="modal-card help-modal-card">
+      <div class="modal-header">
+        <h3>StayStacking</h3>
+        <button id="help-modal-close" class="modal-close">&times;</button>
+      </div>
+      <div class="help-modal-body">
+        <p class="help-intro">StayStacking helps endurance athletes build fitness without breaking down. It tracks your training load so you can stack healthy weeks, not injuries.</p>
+
+        <h4 class="help-section-title">Getting Started</h4>
+        <div class="help-steps">
+          <div class="help-step">
+            <span class="help-step-label">Sync</span>
+            <span class="help-step-desc">Hit the Sync button to pull your last 8 weeks of activities from Strava.</span>
+          </div>
+          <div class="help-step">
+            <span class="help-step-label">HR Zones</span>
+            <span class="help-step-desc">Heart rate zones are pulled from your Strava profile. Update them in Strava's settings, then hit Sync to refresh.</span>
+          </div>
+          <div class="help-step">
+            <span class="help-step-label">Pace Zones</span>
+            <span class="help-step-desc">Calculated from your recent race results. You can also set a custom pace to see time spent above or below a specific threshold.</span>
+          </div>
+          <div class="help-step">
+            <span class="help-step-label">Plan Ahead</span>
+            <span class="help-step-desc">Map upcoming weeks in the Training Plan tab to set targets for distance, elevation, and time.</span>
+          </div>
+        </div>
+
+        <h4 class="help-section-title">About Load Tracking</h4>
+        <p class="help-body">Your weekly load is tracked across distance, elevation, time, and heart rate zones. Use the buttons above the chart to switch between views. Sudden week-over-week spikes are the primary warning sign of injury risk — a gradual, consistent build is the goal.</p>
+
+        <p class="help-body">You can revisit this guide any time by tapping the <strong>?</strong> button at the bottom right of the screen.</p>
+
+        <button id="help-modal-cta" class="btn btn-primary help-cta">Got it — let's go!</button>
+      </div>
     </div>
   </div>
 

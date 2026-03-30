@@ -23,6 +23,14 @@ provider "aws" {
 
 locals {
   frontend_url = var.frontend_url_override
+
+  # Hard-coded account IDs — prod: 527658263602, staging: 350105844643
+  peer_info = {
+    prod    = { peer_account_id = "350105844643", peer_environment = "staging" }
+    staging = { peer_account_id = "527658263602", peer_environment = "prod" }
+  }
+  peer_account_id  = local.peer_info[var.environment].peer_account_id
+  peer_environment = local.peer_info[var.environment].peer_environment
 }
 
 module "database" {
@@ -71,4 +79,6 @@ module "api" {
   training_plan_table_name = module.database.training_plan_table_name
   training_plan_table_arn  = module.database.training_plan_table_arn
   deploy_bucket_name       = module.storage.deploy_bucket_name
+  peer_account_id          = local.peer_account_id
+  peer_environment         = local.peer_environment
 }

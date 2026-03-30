@@ -116,6 +116,21 @@ APP_URL=$(terraform output -raw app_url)
 JWT_SECRET_ARN=$(terraform output -raw jwt_secret_arn)
 STRAVA_SECRET_ARN=$(terraform output -raw strava_secret_arn)
 
+# --- Step 4b: Force-update Lambda code from S3 ---
+# Terraform only updates Lambda code when config changes (e.g. env vars).
+# Always push the latest zip regardless to ensure code changes are deployed.
+echo ""
+echo "[4b] Force-updating Lambda code from S3..."
+for lambda in "${LAMBDAS[@]}"; do
+  FUNCTION_NAME="staystacking-${lambda}-${ENVIRONMENT}"
+  aws lambda update-function-code \
+    --function-name "$FUNCTION_NAME" \
+    --s3-bucket "$DEPLOY_BUCKET" \
+    --s3-key "${lambda}.zip" \
+    --region us-east-1 --profile "$AWS_PROFILE" \
+    --output text --query 'FunctionName' | xargs -I{} echo "  Updated: {}"
+done
+
 # --- Step 5: Push secrets to AWS Secrets Manager ---
 echo ""
 echo "[5/7] Pushing secrets to AWS Secrets Manager..."

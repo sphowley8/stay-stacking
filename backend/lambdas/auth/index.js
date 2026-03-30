@@ -70,16 +70,18 @@ exports.handler = async (event) => {
       let userId;
 
       if (queryResult.Items && queryResult.Items.length > 0) {
-        // Existing user — update tokens
+        // Existing user — update tokens and name
         userId = queryResult.Items[0].userId;
         await dynamo.send(new UpdateCommand({
           TableName: process.env.USERS_TABLE,
           Key: { userId },
-          UpdateExpression: 'SET accessToken = :at, refreshToken = :rt, tokenExpiry = :te',
+          UpdateExpression: 'SET accessToken = :at, refreshToken = :rt, tokenExpiry = :te, firstName = :fn, lastName = :ln',
           ExpressionAttributeValues: {
             ':at': access_token,
             ':rt': refresh_token,
             ':te': expires_at,
+            ':fn': athlete.firstname || '',
+            ':ln': athlete.lastname || '',
           },
         }));
       } else {
@@ -90,6 +92,8 @@ exports.handler = async (event) => {
           Item: {
             userId,
             stravaId,
+            firstName: athlete.firstname || '',
+            lastName: athlete.lastname || '',
             accessToken: access_token,
             refreshToken: refresh_token,
             tokenExpiry: expires_at,

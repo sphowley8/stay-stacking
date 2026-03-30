@@ -111,6 +111,60 @@ resource "aws_iam_role_policy" "cost_explorer_access" {
 }
 
 # -------------------------------------------------------
+# Cross-account role — allows the PEER Lambda to query
+# this account's Cost Explorer + users table
+# -------------------------------------------------------
+
+resource "aws_iam_role" "costs_cross_account" {
+  name = "staystacking-costs-cross-account-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${var.peer_account_id}:root" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "costs_cross_account_policy" {
+  name = "staystacking-costs-cross-account-policy-${var.environment}"
+  role = aws_iam_role.costs_cross_account.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ce:GetCostAndUsage"]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:Scan"]
+        Resource = [var.users_table_arn]
+      }
+    ]
+  })
+}
+
+# Allow THIS Lambda execution role to assume the cross-account role in the peer account
+resource "aws_iam_role_policy" "sts_assume_peer" {
+  name = "staystacking-sts-assume-peer-${var.environment}"
+  role = aws_iam_role.lambda_exec.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["sts:AssumeRole"]
+      Resource = "arn:aws:iam::${var.peer_account_id}:role/staystacking-costs-cross-account-${var.peer_environment}"
+    }]
+  })
+}
+
+# -------------------------------------------------------
 # CloudWatch Log Groups (7-day retention)
 # -------------------------------------------------------
 
@@ -230,8 +284,12 @@ resource "aws_lambda_function" "costs" {
   s3_key        = "costs.zip"
   environment {
     variables = {
-      SECRET_JWT_ARN = aws_secretsmanager_secret.jwt.arn
-      FRONTEND_URL   = var.frontend_url
+      SECRET_JWT_ARN   = aws_secretsmanager_secret.jwt.arn
+      FRONTEND_URL     = var.frontend_url
+      USERS_TABLE      = var.users_table_name
+      ENVIRONMENT      = var.environment
+      PEER_ROLE_ARN    = "arn:aws:iam::${var.peer_account_id}:role/staystacking-costs-cross-account-${var.peer_environment}"
+      PEER_USERS_TABLE = "staystacking-users-${var.peer_environment}"
     }
   }
   depends_on = [aws_cloudwatch_log_group.costs]

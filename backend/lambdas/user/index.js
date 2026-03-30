@@ -29,6 +29,8 @@ exports.handler = async (event) => {
       return response(200, {
         userId: user.userId,
         stravaId: user.stravaId,
+        firstName: user.firstName || null,
+        lastName: user.lastName || null,
         injuryActive: user.injuryActive || false,
         hasValidToken: !!user.tokenExpiry && user.tokenExpiry > now,
         createdAt: user.createdAt,

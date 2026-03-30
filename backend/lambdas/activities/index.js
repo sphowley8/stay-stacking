@@ -34,7 +34,9 @@ function normalizeActivityType(stravaType) {
  * returns seconds spent in each zone [z1, z2, z3, z4, z5].
  * Last zone is treated as unbounded above.
  */
-function computeZoneTimes(timeStream, hrStream, zones) {
+// hrBias: add this many BPM before zone assignment (e.g. +13 for cycling to correct for lower cycling HR)
+// minHr:  ignore samples at or below this raw BPM (e.g. 80 to filter out resting/artifact readings)
+function computeZoneTimes(timeStream, hrStream, zones, { hrBias = 0, minHr = 0 } = {}) {
   const result = [0, 0, 0, 0, 0];
   if (!timeStream || !hrStream || timeStream.length < 2 || !zones || zones.length === 0) {
     return result;
@@ -42,7 +44,9 @@ function computeZoneTimes(timeStream, hrStream, zones) {
   const n = Math.min(timeStream.length, hrStream.length);
   for (let i = 0; i < n - 1; i++) {
     const dt = timeStream[i + 1] - timeStream[i];
-    const hr = hrStream[i];
+    const rawHr = hrStream[i];
+    if (rawHr <= minHr) continue; // filter resting/artifact samples
+    const hr = rawHr + hrBias;
     // Find highest zone whose min <= hr (last zone unbounded above)
     let zoneIdx = 0;
     for (let z = zones.length - 1; z >= 0; z--) {
@@ -296,7 +300,10 @@ exports.handler = async (event) => {
             const streams = await fetchActivityStreams(accessToken, activity.id);
             if (streams) {
               activityHrZones = hrZones
-                ? computeZoneTimes(streams.time, streams.heartrate, hrZones)
+                ? computeZoneTimes(streams.time, streams.heartrate, hrZones, {
+                    hrBias: normalizedType === 'Cycling' ? 13 : 0,
+                    minHr: 80,
+                  })
                 : [0, 0, 0, 0, 0];
               activityPaceZones = wantsPace
                 ? (streams.velocity ? computePaceZones(streams.time, streams.velocity, paceThresholds) : [0, 0, 0, 0, 0, 0, 0])
@@ -347,6 +354,13 @@ exports.handler = async (event) => {
         }));
         syncCount++;
       }
+
+      await dynamo.send(new UpdateCommand({
+        TableName: process.env.USERS_TABLE,
+        Key: { userId },
+        UpdateExpression: 'SET lastSynced = :ts',
+        ExpressionAttributeValues: { ':ts': new Date().toISOString() },
+      }));
 
       return response(200, { synced: syncCount, deleted: toDelete.length });
     })(event);

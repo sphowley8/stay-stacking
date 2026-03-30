@@ -31,8 +31,8 @@ echo "=========================================="
 echo " StayStacking — Seed Staging User"
 echo "=========================================="
 
-# --- Find Sean Howley's prod user record (Strava ID 17231934) ---
-SEAN_STRAVA_ID="17231934"
+# --- Find Sean Howley's prod user record (Strava ID 59998281) ---
+SEAN_STRAVA_ID="59998281"
 echo ""
 echo "Finding Sean Howley's record (stravaId=$SEAN_STRAVA_ID) in staystacking-users-prod..."
 USER_ITEM=$(aws dynamodb scan \

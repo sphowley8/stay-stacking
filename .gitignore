@@ -39,3 +39,4 @@ backups/
 .idea/
 *.swp
 *.swo
+errored.tfstate
