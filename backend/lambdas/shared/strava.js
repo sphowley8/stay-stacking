@@ -14,6 +14,10 @@ function httpsRequest(options, postData) {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
+        if (!data) {
+          resolve({ statusCode: res.statusCode, body: null });
+          return;
+        }
         try {
           resolve({ statusCode: res.statusCode, body: JSON.parse(data) });
         } catch (e) {
@@ -175,7 +179,7 @@ async function buildAuthUrl(redirectUri) {
     `?client_id=${client_id}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&response_type=code` +
-    `&scope=profile:read_all,activity:read_all`
+    `&scope=profile:read_all,activity:read_all,activity:write`
   );
 }
 
@@ -239,4 +243,55 @@ async function fetchAthleteFTP(accessToken) {
   return result.body?.ftp || null;
 }
 
-module.exports = { exchangeCode, getValidToken, fetchActivitiesSince, buildAuthUrl, fetchAthleteZones, fetchActivityStreams, fetchAthleteFTP };
+/**
+ * Creates a manual activity on Strava (no GPS data).
+ * @param {string} accessToken
+ * @param {object} payload - { name, sport_type, start_date_local, elapsed_time, distance?, total_elevation_gain?, description? }
+ * @returns {object} created activity response
+ */
+async function createActivity(accessToken, payload) {
+  const postData = JSON.stringify(payload);
+  const result = await httpsRequest({
+    hostname: 'www.strava.com',
+    path: '/api/v3/activities',
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(postData),
+    },
+  }, postData);
+
+  if (result.statusCode === 401 || result.statusCode === 403) {
+    throw new Error('reauth_required');
+  }
+  if (result.statusCode !== 201) {
+    throw new Error(`Strava create activity failed: ${result.statusCode}`);
+  }
+  return result.body;
+}
+
+/**
+ * Deletes an activity from Strava by its ID.
+ * @param {string} accessToken
+ * @param {string|number} stravaActivityId
+ * @returns {boolean} true on success
+ */
+async function deleteActivity(accessToken, stravaActivityId) {
+  const result = await httpsRequest({
+    hostname: 'www.strava.com',
+    path: `/api/v3/activities/${stravaActivityId}`,
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  if (result.statusCode === 401 || result.statusCode === 403) {
+    throw new Error('reauth_required');
+  }
+  if (result.statusCode === 404) {
+    throw new Error('not_found');
+  }
+  return true;
+}
+
+module.exports = { exchangeCode, getValidToken, fetchActivitiesSince, buildAuthUrl, fetchAthleteZones, fetchActivityStreams, fetchAthleteFTP, createActivity, deleteActivity };

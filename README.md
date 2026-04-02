@@ -2,7 +2,7 @@
 
 > Fitness compounds when consistency compounds. Keep stacking healthy training blocks.
 
-StayStacking is a serverless web application for endurance athletes that tracks training load across three physiological systems — aerobic, muscular, and injury — to prevent overuse injuries and enable long-term progressive fitness.
+StayStacking is a serverless web application for endurance athletes that tracks training load across three physiological systems — aerobic, muscular, and structural — to prevent overuse injuries and enable long-term progressive fitness.
 
 ---
 
@@ -10,7 +10,7 @@ StayStacking is a serverless web application for endurance athletes that tracks 
 
 Endurance athletes often track volume (mileage, vert, time) but not **load density** — the compounding stress across cardiovascular, muscular, and tendon systems. StayStacking answers one question: *Is my body adapting or becoming more reactive?*
 
-The app connects to Strava to pull activity data and overlays manual daily check-ins (stiffness, pain, recovery tools) to give a holistic view of training load over rolling 8-week windows.
+The app connects to Strava to pull activity data and computes ATL (fatigue), CTL (fitness), TSB (form), and ACWR (injury risk) across three load categories: Aerobic, Muscular, and Structural. Manual daily Injury Check-Ins (stiffness, pain, recovery tools) overlay the training data for a holistic view.
 
 ---
 
@@ -20,9 +20,9 @@ The app connects to Strava to pull activity data and overlays manual daily check
 stay-stacking/
 │
 ├── frontend/
-│   ├── index.html          Single-page app shell with all tab panels and modal
+│   ├── index.html          Single-page app shell with all tab panels and modals
 │   ├── styles.css          All styles using the earthy color palette
-│   └── app.js              All app logic: state, API calls, Chart.js, calendar
+│   └── app.js              All app logic: state, API calls, Chart.js, load index
 │
 ├── backend/
 │   └── lambdas/
@@ -35,6 +35,7 @@ stay-stacking/
 │       ├── user/           GET/POST /user (profile + injury toggle)
 │       ├── checkin/        GET/POST /checkin (daily morning/evening log)
 │       ├── activities/     GET /activities + POST /activities/sync
+│       ├── costs/          GET /costs (AWS cost explorer + user list, admin only)
 │       └── training-plan/  GET/POST/DELETE /training-plan/{date}
 │
 ├── terraform/
@@ -45,12 +46,13 @@ stay-stacking/
 │       ├── database/       DynamoDB tables (4 tables + GSIs + TTL)
 │       ├── storage/        S3 buckets + CloudFront distribution (OAC)
 │       └── api/
-│           ├── main.tf     Lambda functions + API Gateway + IAM
+│           ├── main.tf     Lambda functions + API Gateway + IAM + cross-account roles
 │           └── route/      Reusable submodule: HTTP method + OPTIONS CORS
 │
 ├── scripts/
-│   ├── deploy.sh           Full deploy: package lambdas → terraform → upload frontend
-│   └── teardown.sh         terraform destroy with confirmation (optional DynamoDB backup)
+│   ├── deploy.sh               Full deploy: package lambdas → terraform → upload frontend
+│   ├── seed-staging-user.sh    Seeds prod user into staging DynamoDB for testing
+│   └── teardown.sh             terraform destroy with confirmation
 │
 ├── CLAUDE.md               Agent session notes + architecture summary
 ├── README.md               This file
@@ -64,14 +66,14 @@ stay-stacking/
 ```
 Browser
   │
-  ├── HTTPS → CloudFront (CDN)
-  │             └── S3 (static files: index.html, styles.css, app.js)
+  ├── HTTPS → CloudFront (CDN) → S3 (index.html, styles.css, app.js)
   │
   └── HTTPS → API Gateway (REST)
                 ├── /auth/*          → Lambda: auth
                 ├── /user            → Lambda: user
                 ├── /checkin         → Lambda: checkin
                 ├── /activities/*    → Lambda: activities
+                ├── /costs           → Lambda: costs (STS cross-account)
                 └── /training-plan/* → Lambda: training-plan
                         │
                         ├── DynamoDB (4 tables)
@@ -84,7 +86,7 @@ Browser
 
 | Table | PK | SK | Notes |
 |---|---|---|---|
-| `staystacking-users-{env}` | userId (S) | — | GSI on stravaId; stores tokens |
+| `staystacking-users-{env}` | userId (S) | — | GSI on stravaId; stores tokens + lastSynced |
 | `staystacking-activities-{env}` | userId (S) | activityId (S) | GSI on weekStart; TTL = 56 days |
 | `staystacking-checkins-{env}` | userId (S) | date (YYYY-MM-DD) | Morning + evening in one item |
 | `staystacking-training-plan-{env}` | userId (S) | date (YYYY-MM-DD) | Planned distance/elevation/time |
@@ -96,6 +98,26 @@ Browser
 3. Lambda exchanges code for tokens, creates/updates user in DynamoDB
 4. Lambda issues a 30-day JWT → redirects to `FRONTEND_URL/#token={jwt}`
 5. Frontend stores JWT in `localStorage`; all subsequent calls include `Authorization: Bearer {jwt}`
+6. On first login, onboarding modal is shown explaining app features
+
+### Training Load Index
+
+Three load categories computed from weekly Strava zone data, each producing ATL, CTL, TSB, and ACWR:
+
+| Category | Metrics |
+|---|---|
+| **Aerobic** | HR Z1–Z5 weighted ×1/×2/×3/×5/×8 |
+| **Muscular** | Pace Z3–Z7 (×1–×8) + Power Z3–Z7 (×1–×8) + Grade G3 (×1) + G4 (×2) |
+| **Structural** | Run time hrs (×3) + Cycling time hrs (×1) + Grade G3 hrs (×10) + G4 hrs (×5) |
+
+- **CTL** (Fitness) = 42-day EMA, α = `1 - e^(-d/42)` where d = days elapsed
+- **ATL** (Fatigue) = 7-day EMA, α = `1 - e^(-d/7)`
+- **TSB** (Form) = CTL_yesterday − ATL_yesterday
+- **ACWR** (Injury Risk) = ATL ÷ CTL — danger threshold > 1.5
+
+Current week uses day-accurate decay (α computed from days elapsed today) so values update with every sync, not just at week end.
+
+Cycling HR samples receive a +13 BPM bias before zone assignment to normalize cycling vs running HR zones. Samples ≤ 80 BPM are excluded.
 
 ---
 
@@ -117,10 +139,10 @@ export TF_VAR_strava_client_id="YOUR_STRAVA_CLIENT_ID"
 export TF_VAR_strava_client_secret="YOUR_STRAVA_CLIENT_SECRET"
 
 # 2. Deploy everything
-./scripts/deploy.sh
+./scripts/deploy.sh [staging|prod]
 
 # 3. The script outputs:
-#    App URL:  https://xxxx.cloudfront.net
+#    App URL:  https://stay-stacking.sean-howley.com
 #    API URL:  https://xxxx.execute-api.us-east-1.amazonaws.com/prod
 ```
 
@@ -129,31 +151,28 @@ After first deploy, register the API Gateway domain as the **Authorization Callb
 ### Re-deploy (after code changes)
 
 ```bash
-# Re-run the full deploy script — it re-packages lambdas and re-syncs frontend
-./scripts/deploy.sh
+./scripts/deploy.sh [staging|prod]
 ```
 
 ### Teardown
 
 ```bash
-# Destroys all AWS resources. Uncomment backup section in teardown.sh first if needed.
 ./scripts/teardown.sh
 ```
 
 ### Strava App Registration
 
 1. Go to https://www.strava.com/settings/api
-2. Create a new application
-3. Set **Authorization Callback Domain** = the domain from `terraform output api_gateway_url` (no `https://`, no path)
-4. Note the **Client ID** and **Client Secret** → these are `TF_VAR_strava_client_id` and `TF_VAR_strava_client_secret`
-5. Required OAuth scope: `activity:read_all`
+2. Set **Authorization Callback Domain** = domain from `terraform output api_gateway_url` (no `https://`, no path)
+3. Note **Client ID** and **Client Secret** → used as `TF_VAR_strava_client_id` / `TF_VAR_strava_client_secret`
+4. Required OAuth scope: `activity:read_all`
 
 ### Environment Variables (Terraform)
 
 | Variable | Description | Sensitive |
 |---|---|---|
 | `TF_VAR_region` | AWS region (default: us-east-1) | No |
-| `TF_VAR_environment` | Environment name (default: prod) | No |
+| `TF_VAR_environment` | Environment name (staging or prod) | No |
 | `TF_VAR_jwt_secret` | JWT signing secret (min 32 chars) | Yes |
 | `TF_VAR_strava_client_id` | Strava API client ID | Yes |
 | `TF_VAR_strava_client_secret` | Strava API client secret | Yes |

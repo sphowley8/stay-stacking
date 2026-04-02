@@ -22,7 +22,6 @@ const state = {
   thresholdBoundary: { zones: 2, powerZones: 3, paceZones: 450 },
   summaryFilter: ['Run'],
   modalDate: null,
-  tenderToTouch: false,
   costs: [],
   costsUsers: [],
   costsLastUpdated: null,
@@ -31,6 +30,8 @@ const state = {
   liCharts: {},
   liActiveCategory: 'aerobic',
   liIndex: null,
+  actDistanceUnit: 'mi',
+  actElevationUnit: 'ft',
 };
 
 // ============================================================
@@ -79,6 +80,17 @@ function hideHelpModal() {
 }
 
 document.getElementById('btn-help').addEventListener('click', showHelpModal);
+
+// Pain scale info modal — shared trigger for all three check-in sections
+document.querySelectorAll('.btn-pain-scale-trigger').forEach(btn => {
+  btn.addEventListener('click', () => document.getElementById('pain-scale-modal').classList.remove('hidden'));
+});
+document.getElementById('pain-scale-modal-close').addEventListener('click', () => {
+  document.getElementById('pain-scale-modal').classList.add('hidden');
+});
+document.getElementById('pain-scale-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) document.getElementById('pain-scale-modal').classList.add('hidden');
+});
 document.getElementById('help-modal-close').addEventListener('click', hideHelpModal);
 document.getElementById('help-modal-cta').addEventListener('click', () => {
   localStorage.setItem('onboarding_shown', '1');
@@ -196,8 +208,11 @@ async function loadCheckinTab() {
     const data = await apiFetch('/checkin?days=8');
     state.checkins = data.checkins || [];
     renderRecoveryScore();
+    renderInjuryList();
+    renderInjurySelectors();
     populateTodayCheckin();
     renderInjuryPanel();
+    renderSymptomChart();
   } catch (err) {
     if (err.message !== 'unauthorized') showToast('Failed to load check-in data', 'error');
   }
@@ -208,29 +223,63 @@ function populateTodayCheckin() {
   const todayCheckin = state.checkins.find(c => c.date === today);
   if (!todayCheckin) return;
 
-  if (todayCheckin.morningStiffness != null) {
-    const s = document.getElementById('morning-stiffness');
-    s.value = todayCheckin.morningStiffness;
-    document.getElementById('val-stiffness').textContent = todayCheckin.morningStiffness;
+  if (todayCheckin.injuryId) {
+    document.getElementById('morning-injury-select').value = todayCheckin.injuryId;
+    document.getElementById('evening-injury-select').value = todayCheckin.injuryId;
   }
-  if (todayCheckin.morningPain != null) {
-    const p = document.getElementById('morning-pain');
-    p.value = todayCheckin.morningPain;
-    document.getElementById('val-pain').textContent = todayCheckin.morningPain;
+  if (todayCheckin.injuredAreaTightness != null) {
+    document.getElementById('morning-tightness').value = todayCheckin.injuredAreaTightness;
+    document.getElementById('val-injured-tightness').textContent = todayCheckin.injuredAreaTightness;
   }
-  if (todayCheckin.archFeels) {
-    document.getElementById('arch-feels').value = todayCheckin.archFeels;
+  if (todayCheckin.injuredAreaPain != null) {
+    document.getElementById('morning-pain').value = todayCheckin.injuredAreaPain;
+    document.getElementById('val-injured-pain').textContent = todayCheckin.injuredAreaPain;
   }
-  if (todayCheckin.tenderToTouch != null) {
-    state.tenderToTouch = todayCheckin.tenderToTouch;
-    document.querySelectorAll('[data-field="tenderToTouch"]').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.value === String(todayCheckin.tenderToTouch));
-    });
+  if (todayCheckin.surroundingAreaTightness != null) {
+    document.getElementById('surrounding-tightness').value = todayCheckin.surroundingAreaTightness;
+    document.getElementById('val-surrounding-tightness').textContent = todayCheckin.surroundingAreaTightness;
   }
-  if (todayCheckin.eveningPain != null) {
-    const ep = document.getElementById('evening-pain');
-    ep.value = todayCheckin.eveningPain;
-    document.getElementById('val-evening-pain').textContent = todayCheckin.eveningPain;
+  if (todayCheckin.surroundingAreaPain != null) {
+    document.getElementById('surrounding-pain').value = todayCheckin.surroundingAreaPain;
+    document.getElementById('val-surrounding-pain').textContent = todayCheckin.surroundingAreaPain;
+  }
+  // Auto-lock completed sections
+  if (todayCheckin.injuredAreaTightness != null || todayCheckin.injuredAreaPain != null) {
+    lockCheckinCard('morning', morningCheckinSummary(todayCheckin));
+  }
+  if (todayCheckin.duringInjuredAreaTightness != null || todayCheckin.duringInjuredAreaPain != null) {
+    lockCheckinCard('during', duringCheckinSummary(todayCheckin));
+  }
+  if (todayCheckin.eveningInjuredAreaPain != null || todayCheckin.fatigue != null) {
+    lockCheckinCard('evening', eveningCheckinSummary(todayCheckin));
+  }
+
+  if (todayCheckin.duringInjuryId) {
+    document.getElementById('during-injury-select').value = todayCheckin.duringInjuryId;
+  }
+  if (todayCheckin.duringInjuredAreaTightness != null) {
+    document.getElementById('during-tightness').value = todayCheckin.duringInjuredAreaTightness;
+    document.getElementById('val-during-injured-tightness').textContent = todayCheckin.duringInjuredAreaTightness;
+  }
+  if (todayCheckin.duringInjuredAreaPain != null) {
+    document.getElementById('during-pain').value = todayCheckin.duringInjuredAreaPain;
+    document.getElementById('val-during-injured-pain').textContent = todayCheckin.duringInjuredAreaPain;
+  }
+  if (todayCheckin.duringSurroundingAreaTightness != null) {
+    document.getElementById('during-surrounding-tightness').value = todayCheckin.duringSurroundingAreaTightness;
+    document.getElementById('val-during-surrounding-tightness').textContent = todayCheckin.duringSurroundingAreaTightness;
+  }
+  if (todayCheckin.duringSurroundingAreaPain != null) {
+    document.getElementById('during-surrounding-pain').value = todayCheckin.duringSurroundingAreaPain;
+    document.getElementById('val-during-surrounding-pain').textContent = todayCheckin.duringSurroundingAreaPain;
+  }
+  if (todayCheckin.eveningInjuredAreaPain != null) {
+    document.getElementById('evening-injured-pain').value = todayCheckin.eveningInjuredAreaPain;
+    document.getElementById('val-evening-injured-pain').textContent = todayCheckin.eveningInjuredAreaPain;
+  }
+  if (todayCheckin.eveningSurroundingAreaPain != null) {
+    document.getElementById('evening-surrounding-pain').value = todayCheckin.eveningSurroundingAreaPain;
+    document.getElementById('val-evening-surrounding-pain').textContent = todayCheckin.eveningSurroundingAreaPain;
   }
   if (todayCheckin.fatigue != null) {
     const f = document.getElementById('evening-fatigue');
@@ -278,14 +327,125 @@ function renderRecoveryScore() {
   }
 }
 
+function getInjuryName(injuryId) {
+  if (!injuryId) return null;
+  const inj = (state.user?.injuries || []).find(i => i.id === injuryId);
+  return inj ? inj.name : null;
+}
+
+function lockCheckinCard(cardId, summaryHtml) {
+  const card    = document.getElementById(cardId + '-card');
+  const summary = document.getElementById(cardId + '-summary');
+  const editBtn = document.getElementById('btn-edit-' + cardId);
+  card.classList.add('card--completed');
+  summary.innerHTML = summaryHtml;
+  summary.classList.remove('hidden');
+  editBtn.classList.remove('hidden');
+}
+
+function unlockCheckinCard(cardId) {
+  const card    = document.getElementById(cardId + '-card');
+  const summary = document.getElementById(cardId + '-summary');
+  const editBtn = document.getElementById('btn-edit-' + cardId);
+  card.classList.remove('card--completed');
+  summary.classList.add('hidden');
+  editBtn.classList.add('hidden');
+}
+
+function morningCheckinSummary(c) {
+  const name = getInjuryName(c.injuryId);
+  return (name ? `<strong>${name}</strong><br>` : '') +
+    `Injured — Tightness: <strong>${c.injuredAreaTightness ?? '—'}/10</strong> · Pain: <strong>${c.injuredAreaPain ?? '—'}/10</strong><br>` +
+    `Surrounding — Tightness: <strong>${c.surroundingAreaTightness ?? '—'}/10</strong> · Pain: <strong>${c.surroundingAreaPain ?? '—'}/10</strong>`;
+}
+
+function duringCheckinSummary(c) {
+  const name = getInjuryName(c.duringInjuryId);
+  return (name ? `<strong>${name}</strong><br>` : '') +
+    `Injured — Tightness: <strong>${c.duringInjuredAreaTightness ?? '—'}/10</strong> · Pain: <strong>${c.duringInjuredAreaPain ?? '—'}/10</strong><br>` +
+    `Surrounding — Tightness: <strong>${c.duringSurroundingAreaTightness ?? '—'}/10</strong> · Pain: <strong>${c.duringSurroundingAreaPain ?? '—'}/10</strong>`;
+}
+
+function eveningCheckinSummary(c) {
+  const name = getInjuryName(c.injuryId);
+  const recovery = (c.recoveryTools || []).join(', ') || '—';
+  const lifestyle = (c.lifestyleFactors || []).join(', ') || '—';
+  return (name ? `<strong>${name}</strong><br>` : '') +
+    `Pain: <strong>${c.eveningInjuredAreaPain ?? '—'}/10</strong> · Surrounding Pain: <strong>${c.eveningSurroundingAreaPain ?? '—'}/10</strong> · Fatigue: <strong>${c.fatigue ?? '—'}/10</strong><br>` +
+    `Recovery: <strong>${recovery}</strong><br>` +
+    `Lifestyle: <strong>${lifestyle}</strong>`;
+}
+
+function renderInjurySelectors() {
+  const injuries = state.user?.injuries || [];
+  const options = injuries.map(inj =>
+    `<option value="${inj.id}">${inj.name}</option>`
+  ).join('');
+  ['morning-injury-select', 'during-injury-select', 'evening-injury-select'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— Select injury —</option>' + options;
+    if (current) sel.value = current;
+  });
+}
+
+function renderInjuryList() {
+  const injuries = state.user?.injuries || [];
+  const el = document.getElementById('injury-list');
+  if (!el) return;
+  if (!injuries.length) {
+    el.innerHTML = '<p class="muted">No injuries added yet.</p>';
+    return;
+  }
+  el.innerHTML = injuries.map(inj =>
+    `<div class="injury-list-item">
+      <span class="injury-list-name">${inj.name}</span>
+      <span class="injury-list-date">Added ${inj.createdAt}</span>
+      <button class="btn btn-small btn-danger" data-injury-id="${inj.id}">Remove</button>
+    </div>`
+  ).join('');
+  el.querySelectorAll('[data-injury-id]').forEach(btn => {
+    btn.addEventListener('click', () => removeInjury(btn.dataset.injuryId));
+  });
+}
+
+async function createInjury() {
+  const input = document.getElementById('injury-name-input');
+  const name = input.value.trim();
+  if (!name) return;
+  try {
+    const updated = await apiFetch('/user', { method: 'POST', body: JSON.stringify({ addInjury: { name } }) });
+    state.user.injuries = updated.injuries || [];
+    input.value = '';
+    renderInjuryList();
+    renderInjurySelectors();
+    showToast('Injury added', 'success');
+  } catch (err) {
+    showToast('Failed to add injury: ' + err.message, 'error');
+  }
+}
+
+async function removeInjury(injuryId) {
+  try {
+    const updated = await apiFetch('/user', { method: 'POST', body: JSON.stringify({ removeInjuryId: injuryId }) });
+    state.user.injuries = updated.injuries || [];
+    renderInjuryList();
+    renderInjurySelectors();
+    showToast('Injury removed', 'success');
+  } catch (err) {
+    showToast('Failed to remove injury: ' + err.message, 'error');
+  }
+}
+
 function computeRecoveryScore(checkins) {
   const withStiffness = checkins
-    .filter(c => c.morningStiffness != null)
+    .filter(c => c.injuredAreaTightness != null)
     .slice(-5);
 
   if (withStiffness.length < 2) return 'unknown';
 
-  const vals = withStiffness.map(c => c.morningStiffness);
+  const vals = withStiffness.map(c => c.injuredAreaTightness);
   const last3 = vals.slice(-3);
   const allIncreasing3 = last3.length >= 3 && last3.every((v, i) => i === 0 || v >= last3[i - 1]);
   const allIncreasing5 = vals.length >= 5 && vals.every((v, i) => i === 0 || v >= vals[i - 1]);
@@ -316,26 +476,124 @@ function renderSuggestions(status) {
 }
 
 function renderInjuryPanel() {
-  const toggle = document.getElementById('injury-toggle');
-  const panel  = document.getElementById('injury-panel');
-  const hint   = document.getElementById('injury-toggle-hint');
-
-  const injuryActive = state.user?.injuryActive || false;
-  toggle.checked = injuryActive;
-
-  if (injuryActive) {
-    panel.classList.remove('hidden');
-    hint.classList.add('hidden');
-    updateLDI();
-  } else {
-    panel.classList.add('hidden');
-    hint.classList.remove('hidden');
-  }
+  // Injury toggle/panel replaced by injury management section — no-op
 }
+
+// ============================================================
+// SYMPTOM TREND CHART
+// ============================================================
+
+let symptomChart = null;
+
+function renderSymptomChart() {
+  const checkins = state.checkins;
+  const injuries = state.user?.injuries || [];
+  const filterSel = document.getElementById('symptom-injury-filter');
+  const emptyEl   = document.getElementById('symptom-chart-empty');
+  const legendEl  = document.getElementById('symptom-chart-legend');
+
+  // Populate injury filter dropdown
+  const currentFilter = filterSel.value;
+  filterSel.innerHTML = '<option value="">All injuries</option>' +
+    injuries.map(i => `<option value="${i.id}"${i.id === currentFilter ? ' selected' : ''}>${i.name}</option>`).join('');
+
+  const filterInjuryId = filterSel.value;
+
+  // Build sorted list of the last 8 weeks of check-in dates with data
+  const sorted = [...checkins].sort((a, b) => a.date.localeCompare(b.date));
+
+  // Filter by selected injury if set
+  const filtered = filterInjuryId
+    ? sorted.filter(c => c.injuryId === filterInjuryId || c.duringInjuryId === filterInjuryId || c.injuryId === filterInjuryId)
+    : sorted;
+
+  const hasData = filtered.some(c =>
+    c.injuredAreaTightness != null || c.injuredAreaPain != null ||
+    c.duringInjuredAreaPain != null || c.eveningInjuredAreaPain != null
+  );
+
+  if (!hasData) {
+    emptyEl.classList.remove('hidden');
+    if (symptomChart) { symptomChart.destroy(); symptomChart = null; }
+    legendEl.innerHTML = '';
+    return;
+  }
+  emptyEl.classList.add('hidden');
+
+  const labels = filtered.map(c => {
+    const d = new Date(c.date + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  });
+
+  const METRICS = [
+    { key: 'injuredAreaTightness',       label: 'Morning Tightness',         color: '#64b5f6' },
+    { key: 'injuredAreaPain',            label: 'Morning Pain',              color: '#e57373' },
+    { key: 'duringInjuredAreaPain',      label: 'During Activity Pain',      color: '#ff8a65' },
+    { key: 'surroundingAreaPain',        label: 'Morning Surrounding Pain',  color: '#ba68c8' },
+    { key: 'eveningInjuredAreaPain',     label: 'Evening Pain',              color: '#c62828' },
+    { key: 'eveningSurroundingAreaPain', label: 'Evening Surrounding Pain',  color: '#7b1fa2' },
+    { key: 'fatigue',                    label: 'Fatigue',                   color: '#a5d6a7' },
+  ];
+
+  const datasets = METRICS.map(m => ({
+    label: m.label,
+    data: filtered.map(c => c[m.key] ?? null),
+    borderColor: m.color,
+    backgroundColor: m.color + '22',
+    borderWidth: 2,
+    pointRadius: 4,
+    pointHoverRadius: 6,
+    tension: 0.3,
+    spanGaps: true,
+  }));
+
+  // Legend
+  legendEl.innerHTML = METRICS.map(m =>
+    `<div class="symptom-legend-item">
+      <span class="symptom-legend-swatch" style="background:${m.color}"></span>
+      <span>${m.label}</span>
+    </div>`
+  ).join('');
+
+  const ctx = document.getElementById('symptom-chart').getContext('2d');
+  if (symptomChart) symptomChart.destroy();
+  symptomChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y + '/10' : '—'}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: '#7a8f9c', font: { size: 11 }, maxRotation: 30 },
+        },
+        y: {
+          min: 0,
+          max: 10,
+          grid: { color: 'rgba(0,0,0,0.05)' },
+          ticks: { color: '#7a8f9c', font: { size: 11 }, stepSize: 2 },
+        },
+      },
+    },
+  });
+}
+
+// Re-render chart when injury filter changes
+document.getElementById('symptom-injury-filter').addEventListener('change', renderSymptomChart);
 
 function updateLDI() {
   const recent = state.checkins.slice(-3);
-  const stiffnessVals = recent.filter(c => c.morningStiffness != null).map(c => c.morningStiffness);
+  const stiffnessVals = recent.filter(c => c.injuredAreaTightness != null).map(c => c.injuredAreaTightness);
   const avgStiffness = stiffnessVals.length
     ? stiffnessVals.reduce((a, b) => a + b, 0) / stiffnessVals.length
     : 0;
@@ -446,9 +704,15 @@ const GRADE_GREENS      = ['#a5d6a7', '#ffe082', '#ffb74d', '#ef5350'];
 
 // Load index — HR zone weights for aerobic load (EPOC proxy: Z1=easy → Z5=max)
 const AEROBIC_HR_WEIGHTS = [1, 2, 3, 5, 8];
-// Weekly EWMA decay constants (adjusted from daily TrainingPeaks τ values for 7-day windows)
-const LI_α_CTL = 1 - Math.exp(-7 / 42); // ≈ 0.154 — 42-day fitness window
-const LI_α_ATL = 1 - Math.exp(-7 / 7);  // ≈ 0.632 — 7-day fatigue window
+
+// Returns how many days have elapsed in the week starting on weekStartStr (YYYY-MM-DD).
+// Monday of current week = 1 day, Sunday = 7 days. Historical weeks always return 7.
+function getDaysElapsedInWeek(weekStartStr) {
+  const [y, m, d] = weekStartStr.split('-').map(Number);
+  const weekStart = new Date(y, m - 1, d); // local midnight
+  const daysSince = Math.floor((Date.now() - weekStart.getTime()) / 86400000);
+  return Math.min(7, Math.max(1, daysSince + 1));
+}
 
 function getActiveZoneMetric() {
   return ['zones', 'powerZones', 'paceZones'].find(m => state.chartToggles[m]);
@@ -927,20 +1191,34 @@ function computeLoadIndex(weeks) {
       return sum + ((Array.isArray(w.hrZones) ? (w.hrZones[i] || 0) : 0) / 3600) * wt;
     }, 0);
 
-    // Muscular: high-intensity pace + power + power-hike time
+    // Muscular: zone-weighted pace + power (Z3×1, Z4×2, Z5×3, Z6×5, Z7×8) + grade stress
+    const MUSCULAR_ZONE_WEIGHTS = [1, 2, 3, 5, 8]; // applied to zones[2..6]
     const muscular = (
-      (Array.isArray(w.powerZones) ? w.powerZones.slice(2).reduce((a, v) => a + v, 0) : 0) / 3600 +
-      (Array.isArray(w.paceZones)  ? w.paceZones.slice(2).reduce((a, v) => a + v, 0)  : 0) / 3600 +
-      (Array.isArray(w.gradeZones) ? (w.gradeZones[3] || 0) : 0) / 3600 * 2
+      (Array.isArray(w.paceZones)
+        ? w.paceZones.slice(2).reduce((a, v, i) => a + (v / 3600) * MUSCULAR_ZONE_WEIGHTS[i], 0)
+        : 0) +
+      (Array.isArray(w.powerZones)
+        ? w.powerZones.slice(2).reduce((a, v, i) => a + (v / 3600) * MUSCULAR_ZONE_WEIGHTS[i], 0)
+        : 0) +
+      (Array.isArray(w.gradeZones) ? (w.gradeZones[2] || 0) : 0) / 3600 * 1 +  // G3 ×1
+      (Array.isArray(w.gradeZones) ? (w.gradeZones[3] || 0) : 0) / 3600 * 2    // G4 ×2
     );
 
-    // Structural: impact + eccentric load
-    const runMiles   = (w.byType?.Run?.distance     || 0) / 1609.34;
-    const cycleMiles = (w.byType?.Cycling?.distance || 0) / 1609.34;
-    const g3Hrs      = (Array.isArray(w.gradeZones) ? (w.gradeZones[2] || 0) : 0) / 3600;
-    const structural = runMiles + g3Hrs * 0.1 + cycleMiles * 0.2;
+    // Structural: time-based impact + eccentric load
+    const runHrs   = (w.byType?.Run?.time     || 0) / 3600;
+    const cycleHrs = (w.byType?.Cycling?.time || 0) / 3600;
+    const g3Hrs    = (Array.isArray(w.gradeZones) ? (w.gradeZones[2] || 0) : 0) / 3600;
+    const g4Hrs    = (Array.isArray(w.gradeZones) ? (w.gradeZones[3] || 0) : 0) / 3600;
+    const structural = runHrs * 3 + cycleHrs * 1 + g3Hrs * 10 + g4Hrs * 5;
 
     const loads = { aerobic, muscular, structural };
+
+    // For the most recent (possibly partial) week, step the EMA by actual days elapsed
+    // so values reflect today's training state, not just the last day of the week.
+    const isCurrentWeek = wi === weeks.length - 1;
+    const daysElapsed = isCurrentWeek ? getDaysElapsedInWeek(w.weekStart) : 7;
+    const α_ctl = 1 - Math.exp(-daysElapsed / 42);
+    const α_atl = 1 - Math.exp(-daysElapsed / 7);
 
     for (const cat of cats) {
       const load = loads[cat];
@@ -948,8 +1226,8 @@ function computeLoadIndex(weeks) {
         result[cat].push({ weekStart: w.weekStart, load: parseFloat(load.toFixed(2)), ctl: parseFloat(load.toFixed(1)), atl: parseFloat(load.toFixed(1)), tsb: 0, acwr: 1 });
       } else {
         const prev = result[cat][wi - 1];
-        const ctl  = LI_α_CTL * load + (1 - LI_α_CTL) * prev.ctl;
-        const atl  = LI_α_ATL * load + (1 - LI_α_ATL) * prev.atl;
+        const ctl  = α_ctl * load + (1 - α_ctl) * prev.ctl;
+        const atl  = α_atl * load + (1 - α_atl) * prev.atl;
         const tsb  = prev.ctl - prev.atl;
         const acwr = ctl > 0 ? parseFloat((atl / ctl).toFixed(2)) : null;
         result[cat].push({ weekStart: w.weekStart, load: parseFloat(load.toFixed(2)), ctl: parseFloat(ctl.toFixed(1)), atl: parseFloat(atl.toFixed(1)), tsb: parseFloat(tsb.toFixed(1)), acwr });
@@ -1157,17 +1435,25 @@ function renderLoadIndexCard() {
 
 function renderLoadMatrix() {
   const rows = [
-    { metric: 'HR Z1 time (hrs)',      aerobic: '\u00d71', muscular: '\u2014',      structural: '\u2014'    },
-    { metric: 'HR Z2 time (hrs)',      aerobic: '\u00d72', muscular: '\u2014',      structural: '\u2014'    },
-    { metric: 'HR Z3 time (hrs)',      aerobic: '\u00d73', muscular: '\u2014',      structural: '\u2014'    },
-    { metric: 'HR Z4 time (hrs)',      aerobic: '\u00d75', muscular: '\u2014',      structural: '\u2014'    },
-    { metric: 'HR Z5 time (hrs)',      aerobic: '\u00d78', muscular: '\u2014',      structural: '\u2014'    },
-    { metric: 'Pace Z3\u2013Z7 time (hrs)',  aerobic: '\u2014',      muscular: '\u00d71', structural: '\u2014'    },
-    { metric: 'Power Z3\u2013Z7 time (hrs)', aerobic: '\u2014',      muscular: '\u00d71', structural: '\u2014'    },
-    { metric: 'Grade G4 time (hrs)',   aerobic: '\u2014',      muscular: '\u00d72', structural: '\u2014'    },
-    { metric: 'Running distance (mi)', aerobic: '\u2014',      muscular: '\u2014',      structural: '\u00d71'  },
-    { metric: 'Grade G3 time (hrs)',   aerobic: '\u2014',      muscular: '\u2014',      structural: '\u00d70.1'},
-    { metric: 'Cycling distance (mi)', aerobic: '\u2014',      muscular: '\u2014',      structural: '\u00d70.2'},
+    { metric: 'HR Z1 time (hrs)',       aerobic: '\u00d71', muscular: '\u2014',       structural: '\u2014'   },
+    { metric: 'HR Z2 time (hrs)',       aerobic: '\u00d72', muscular: '\u2014',       structural: '\u2014'   },
+    { metric: 'HR Z3 time (hrs)',       aerobic: '\u00d73', muscular: '\u2014',       structural: '\u2014'   },
+    { metric: 'HR Z4 time (hrs)',       aerobic: '\u00d75', muscular: '\u2014',       structural: '\u2014'   },
+    { metric: 'HR Z5 time (hrs)',       aerobic: '\u00d78', muscular: '\u2014',       structural: '\u2014'   },
+    { metric: 'Pace Z3 time (hrs)',     aerobic: '\u2014',  muscular: '\u00d71',      structural: '\u2014'   },
+    { metric: 'Pace Z4 time (hrs)',     aerobic: '\u2014',  muscular: '\u00d72',      structural: '\u2014'   },
+    { metric: 'Pace Z5 time (hrs)',     aerobic: '\u2014',  muscular: '\u00d73',      structural: '\u2014'   },
+    { metric: 'Pace Z6 time (hrs)',     aerobic: '\u2014',  muscular: '\u00d75',      structural: '\u2014'   },
+    { metric: 'Pace Z7 time (hrs)',     aerobic: '\u2014',  muscular: '\u00d78',      structural: '\u2014'   },
+    { metric: 'Power Z3 time (hrs)',    aerobic: '\u2014',  muscular: '\u00d71',      structural: '\u2014'   },
+    { metric: 'Power Z4 time (hrs)',    aerobic: '\u2014',  muscular: '\u00d72',      structural: '\u2014'   },
+    { metric: 'Power Z5 time (hrs)',    aerobic: '\u2014',  muscular: '\u00d73',      structural: '\u2014'   },
+    { metric: 'Power Z6 time (hrs)',    aerobic: '\u2014',  muscular: '\u00d75',      structural: '\u2014'   },
+    { metric: 'Power Z7 time (hrs)',    aerobic: '\u2014',  muscular: '\u00d78',      structural: '\u2014'   },
+    { metric: 'Grade G3 time (hrs)',    aerobic: '\u2014',  muscular: '\u00d71',      structural: '\u00d710' },
+    { metric: 'Grade G4 time (hrs)',    aerobic: '\u2014',  muscular: '\u00d72',      structural: '\u00d75'  },
+    { metric: 'Running time (hrs)',     aerobic: '\u2014',  muscular: '\u2014',       structural: '\u00d73'  },
+    { metric: 'Cycling time (hrs)',     aerobic: '\u2014',  muscular: '\u2014',       structural: '\u00d71'  },
   ];
 
   document.getElementById('load-matrix-table').innerHTML = `
@@ -1184,8 +1470,8 @@ function renderLoadMatrix() {
       <div class="load-formula-item">
         <span class="load-formula-term">CTL</span>
         <span class="load-formula-name">Chronic Training Load &mdash; Fitness</span>
-        <span class="load-formula-desc">A 42-day exponential moving average of your weekly load. Represents long-term fitness built over time. Rises slowly with consistent training, falls slowly with rest. The formula only references last week because an EMA is recursive &mdash; CTL<sub>last week</sub> already contains the weighted contribution of every prior week. The 42-day window means a week&rsquo;s load decays to ~37% of its value after 42 days, not that only 6 weeks of history are used.</span>
-        <code class="load-formula-eq">CTL = 0.154 &times; load<sub>this week</sub> + 0.846 &times; CTL<sub>last week</sub></code>
+        <span class="load-formula-desc">A 42-day exponential moving average of your weekly load. Represents long-term fitness built over time. Rises slowly with consistent training, falls slowly with rest. The formula only references last week because an EMA is recursive &mdash; CTL<sub>last week</sub> already contains the weighted contribution of every prior week. The 42-day window means a week&rsquo;s load decays to ~37% of its value after 42 days, not that only 6 weeks of history are used. For the current partial week, the decay is scaled to the exact number of days elapsed so the value is accurate on any day of the week, not just at week&rsquo;s end.</span>
+        <code class="load-formula-eq">CTL = (1&minus;e<sup>&minus;days/42</sup>) &times; load<sub>this period</sub> + e<sup>&minus;days/42</sup> &times; CTL<sub>last week</sub></code>
       </div>
       <div class="load-formula-item">
         <span class="load-formula-term">ATL</span>
@@ -1215,180 +1501,180 @@ function renderLoadMatrix() {
 }
 
 // ============================================================
-// TRAINING PLAN TAB
+// ACTIVITY LOG TAB
 // ============================================================
 
 async function loadPlanTab() {
-  const startDate = getMondayStr(new Date());
-  const endDate   = addDaysStr(startDate, 41);
-
   try {
-    const [planData, actData] = await Promise.all([
-      apiFetch(`/training-plan?startDate=${startDate}&endDate=${endDate}`),
-      apiFetch('/activities'),
-    ]);
-
-    state.planEntries = planData.entries || [];
-    state.activities  = actData.weeks || [];
-
-    renderCalendar('calendar-plan', startDate, buildPlanMap(state.planEntries), true);
-    renderCalendar('calendar-actual', startDate, buildActualMap(state.activities, startDate, endDate), false);
+    const data = await apiFetch('/activities/manual');
+    renderManualActivityRegistry(data.activities || []);
   } catch (err) {
-    if (err.message !== 'unauthorized') showToast('Failed to load training plan', 'error');
+    if (err.message !== 'unauthorized') showToast('Failed to load activity log', 'error');
   }
 }
 
-function buildPlanMap(entries) {
-  const map = {};
-  for (const e of entries) map[e.date] = e;
-  return map;
-}
+function renderManualActivityRegistry(activities) {
+  const registry = document.getElementById('manual-activity-registry');
+  const empty = document.getElementById('registry-empty');
 
-function buildActualMap(weeks, startDate, endDate) {
-  // Flatten weekly activities back to per-day using the activities endpoint data
-  // Since activities endpoint returns weekly aggregates, for ACTUAL tab we'll
-  // need per-day data. We'll re-fetch individual activities if needed.
-  // For now, build a map of weekly totals distributed (approximation) or show
-  // per-day from the existing data structure.
-  // Note: to show per-day actual data, the activities endpoint would need to be extended.
-  // For the current implementation, we show weekly totals on Monday of each week.
-  const map = {};
-  for (const week of weeks) {
-    const weekStart = week.weekStart;
-    if (weekStart >= startDate && weekStart <= endDate) {
-      map[weekStart] = {
-        distance: week.totalDistance,
-        elevation: week.totalElevation,
-        time: week.totalTime,
-        isWeekTotal: true,
-      };
-    }
+  // Remove existing rows (but keep empty message)
+  registry.querySelectorAll('.registry-row').forEach(el => el.remove());
+
+  if (activities.length === 0) {
+    if (empty) empty.classList.remove('hidden');
+    return;
   }
-  return map;
-}
+  if (empty) empty.classList.add('hidden');
 
-function renderCalendar(containerId, startDate, dataMap, isEditable) {
-  const container = document.getElementById(containerId);
-  container.innerHTML = '';
-
-  const today = getTodayStr();
-  const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-  // Header row
-  const header = document.createElement('div');
-  header.className = 'week-header';
-  header.innerHTML = '<div></div>' + DAY_LABELS.map(d => `<div class="week-day-label">${d}</div>`).join('');
-  container.appendChild(header);
-
-  for (let week = 0; week < 6; week++) {
+  for (const act of activities) {
     const row = document.createElement('div');
-    row.className = 'week-row';
+    row.className = 'registry-row';
 
-    // Week label
-    const weekDate = addDaysStr(startDate, week * 7);
-    const weekLabel = document.createElement('div');
-    weekLabel.className = 'week-label';
-    weekLabel.textContent = formatShortDate(weekDate);
-    row.appendChild(weekLabel);
+    // Format meta
+    const distMi = act.distance ? (act.distance / 1609.344).toFixed(1) + ' mi' : '';
+    const elevFt = act.elevation ? Math.round(act.elevation * 3.28084) + ' ft' : '';
+    const dur = act.elapsedTime ? formatDuration(act.elapsedTime) : '';
+    const dateFmt = act.startDate ? formatFullDate(act.startDate) : '';
+    const metaParts = [act.activityType, dateFmt, dur, distMi, elevFt].filter(Boolean);
 
-    for (let day = 0; day < 7; day++) {
-      const dateStr = addDaysStr(startDate, week * 7 + day);
-      const entry = dataMap[dateStr];
+    row.innerHTML = `
+      <div class="registry-info">
+        <span class="registry-name">${escapeHtml(act.name || act.activityType)}</span>
+        <span class="registry-meta">${metaParts.join(' · ')}</span>
+      </div>
+      <button class="btn btn-small btn-danger" data-activity-id="${act.activityId}">Delete</button>
+    `;
+    registry.appendChild(row);
+  }
 
-      const cell = document.createElement('div');
-      cell.className = 'day-cell';
-      if (dateStr === today) cell.classList.add('today');
-      if (dateStr < today)   cell.classList.add('past');
-      if (entry)             cell.classList.add('has-data');
-      if (isEditable)        cell.classList.add('clickable');
+  registry.querySelectorAll('[data-activity-id]').forEach(btn => {
+    btn.addEventListener('click', () => deleteManualActivity(btn.dataset.activityId));
+  });
+}
 
-      const dayNum = parseInt(dateStr.slice(8), 10);
-      cell.innerHTML = `<span class="day-num">${dayNum}</span>`;
+function formatDuration(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s > 0 ? s + 's' : ''}`.trim();
+  return `${s}s`;
+}
 
-      if (entry) {
-        const distMi = entry.isWeekTotal
-          ? `${(entry.distance / 1609.34).toFixed(1)}mi wk`
-          : `${entry.distance.toFixed(1)}mi`;
-        const elev = entry.isWeekTotal
-          ? `${Math.round(entry.elevation * 3.28084)}ft`
-          : `${Math.round(entry.elevation)}ft`;
-        const hrs  = entry.isWeekTotal
-          ? formatDuration(entry.time)
-          : `${entry.time}min`;
-
-        cell.innerHTML += `
-          <div class="day-data">
-            <div class="day-data-row"><span class="day-data-icon">↔</span>${distMi}</div>
-            <div class="day-data-row"><span class="day-data-icon">↑</span>${elev}</div>
-            <div class="day-data-row"><span class="day-data-icon">⏱</span>${hrs}</div>
-          </div>`;
-      }
-
-      if (isEditable) {
-        cell.addEventListener('click', () => openDayModal(dateStr, entry));
-      }
-
-      row.appendChild(cell);
+async function deleteManualActivity(activityId) {
+  if (!confirm('Delete this activity from Strava and StayStacking?')) return;
+  try {
+    const result = await apiFetch(`/activities/manual/${activityId}`, { method: 'DELETE' });
+    showToast('Activity deleted', 'success');
+    if (result.weeks) {
+      state.activities = result.weeks;
+      if (state.activeTab === 'load') renderLoadChart();
     }
-
-    container.appendChild(row);
+    await loadPlanTab();
+  } catch (err) {
+    if (err.message === 'reauth_required') {
+      showToast('Write access required — sign out and reconnect Strava', 'error');
+    } else if (err.message !== 'unauthorized') {
+      showToast('Failed to delete activity: ' + err.message, 'error');
+    }
   }
 }
 
 // ============================================================
-// DAY MODAL
+// ADD ACTIVITY MODAL
 // ============================================================
 
-function openDayModal(dateStr, entry) {
-  state.modalDate = dateStr;
-
-  const title = document.getElementById('modal-title');
-  title.textContent = `Plan — ${formatFullDate(dateStr)}`;
-
-  document.getElementById('modal-distance').value = entry?.distance  ?? '';
-  document.getElementById('modal-elevation').value = entry?.elevation ?? '';
-  document.getElementById('modal-time').value      = entry?.time      ?? '';
-
-  document.getElementById('day-modal').classList.remove('hidden');
+function openAddActivityModal() {
+  const today = getTodayStr();
+  document.getElementById('act-date').value = today;
+  document.getElementById('act-time').value = '08:00';
+  document.getElementById('act-name').value = '';
+  document.getElementById('act-type').value = 'Run';
+  document.getElementById('act-dur-h').value = '';
+  document.getElementById('act-dur-m').value = '';
+  document.getElementById('act-dur-s').value = '';
+  document.getElementById('act-distance').value = '';
+  document.getElementById('act-elevation').value = '';
+  document.getElementById('act-avg-hr').value = '';
+  document.getElementById('act-avg-pace').value = '';
+  document.getElementById('act-avg-power').value = '';
+  document.getElementById('act-description').value = '';
+  document.getElementById('add-activity-reauth-msg').classList.add('hidden');
+  document.getElementById('add-activity-form-wrap').classList.remove('hidden');
+  updateActivityTypeFields('Run');
+  document.getElementById('add-activity-modal').classList.remove('hidden');
 }
 
-function closeDayModal() {
-  document.getElementById('day-modal').classList.add('hidden');
-  state.modalDate = null;
+function closeAddActivityModal() {
+  document.getElementById('add-activity-modal').classList.add('hidden');
 }
 
-async function saveDayModal(e) {
-  e.preventDefault();
-  if (!state.modalDate) return;
+function updateActivityTypeFields(type) {
+  const paceGroup = document.getElementById('act-avg-pace-group');
+  const powerGroup = document.getElementById('act-avg-power-group');
+  const showPace = ['Run', 'Hike', 'Walk'].includes(type);
+  const showPower = type === 'Ride';
+  paceGroup.style.display = showPace ? '' : 'none';
+  powerGroup.style.display = showPower ? '' : 'none';
+}
 
-  const distance  = parseFloat(document.getElementById('modal-distance').value)  || 0;
-  const elevation = parseFloat(document.getElementById('modal-elevation').value) || 0;
-  const time      = parseFloat(document.getElementById('modal-time').value)       || 0;
+async function submitAddActivity() {
+  const name = document.getElementById('act-name').value.trim();
+  const sport_type = document.getElementById('act-type').value;
+  const date = document.getElementById('act-date').value;
+  const time = document.getElementById('act-time').value || '08:00';
+  const hours = parseInt(document.getElementById('act-dur-h').value || '0', 10);
+  const minutes = parseInt(document.getElementById('act-dur-m').value || '0', 10);
+  const seconds = parseInt(document.getElementById('act-dur-s').value || '0', 10);
+
+  if (!name) { showToast('Activity name is required', 'error'); return; }
+  if (!date) { showToast('Date is required', 'error'); return; }
+  if (hours === 0 && minutes === 0 && seconds === 0) { showToast('Duration is required', 'error'); return; }
+
+  const start_date_local = `${date}T${time}:00`;
+
+  const body = {
+    name,
+    sport_type,
+    start_date_local,
+    hours,
+    minutes,
+    seconds,
+    distanceValue: document.getElementById('act-distance').value || '',
+    distanceUnit: state.actDistanceUnit,
+    elevationValue: document.getElementById('act-elevation').value || '',
+    elevationUnit: state.actElevationUnit,
+    avgHr: parseInt(document.getElementById('act-avg-hr').value || '0', 10) || null,
+    avgPace: document.getElementById('act-avg-pace').value.trim() || null,
+    avgPower: parseInt(document.getElementById('act-avg-power').value || '0', 10) || null,
+    description: document.getElementById('act-description').value.trim() || null,
+  };
+
+  const btn = document.getElementById('btn-submit-activity');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
 
   try {
-    await apiFetch(`/training-plan/${state.modalDate}`, {
-      method: 'POST',
-      body: JSON.stringify({ distance, elevation, time }),
-    });
-    showToast('Saved', 'success');
-    closeDayModal();
-    loadPlanTab(); // Refresh calendar
+    const result = await apiFetch('/activities/manual', { method: 'POST', body: JSON.stringify(body) });
+    closeAddActivityModal();
+    showToast('Activity saved to Strava!', 'success');
+    if (result.weeks) {
+      state.activities = result.weeks;
+      if (state.activeTab === 'load') renderLoadChart();
+    }
+    await loadPlanTab();
   } catch (err) {
-    showToast('Failed to save: ' + err.message, 'error');
+    if (err.message === 'reauth_required') {
+      document.getElementById('add-activity-reauth-msg').classList.remove('hidden');
+    } else if (err.message !== 'unauthorized') {
+      showToast('Failed to save: ' + err.message, 'error');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save to Strava';
   }
 }
 
-async function deleteDayModal() {
-  if (!state.modalDate) return;
-  try {
-    await apiFetch(`/training-plan/${state.modalDate}`, { method: 'DELETE' });
-    showToast('Cleared', 'success');
-    closeDayModal();
-    loadPlanTab();
-  } catch (err) {
-    showToast('Failed to clear: ' + err.message, 'error');
-  }
-}
 
 // ============================================================
 // SYNC
@@ -1440,17 +1726,45 @@ async function syncActivities() {
 
 async function saveMorningCheckin() {
   const date = getTodayStr();
+  const injuryId = document.getElementById('morning-injury-select').value || null;
   const payload = {
     date,
-    morningStiffness: parseInt(document.getElementById('morning-stiffness').value, 10),
-    morningPain:      parseInt(document.getElementById('morning-pain').value, 10),
-    tenderToTouch:    state.tenderToTouch,
-    archFeels:        document.getElementById('arch-feels').value,
+    injuryId,
+    injuredAreaTightness:    parseInt(document.getElementById('morning-tightness').value, 10),
+    injuredAreaPain:         parseInt(document.getElementById('morning-pain').value, 10),
+    surroundingAreaTightness: parseInt(document.getElementById('surrounding-tightness').value, 10),
+    surroundingAreaPain:     parseInt(document.getElementById('surrounding-pain').value, 10),
   };
 
   try {
     await apiFetch('/checkin', { method: 'POST', body: JSON.stringify(payload) });
     showToast('Morning check-in saved', 'success');
+    lockCheckinCard('morning', morningCheckinSummary(payload));
+    await loadCheckinTab();
+  } catch (err) {
+    showToast('Failed to save: ' + err.message, 'error');
+  }
+}
+
+// ============================================================
+// DURING ACTIVITY CHECK-IN SAVE
+// ============================================================
+
+async function saveDuringCheckin() {
+  const date = getTodayStr();
+  const duringInjuryId = document.getElementById('during-injury-select').value || null;
+  const payload = {
+    date,
+    duringInjuryId,
+    duringInjuredAreaTightness:    parseInt(document.getElementById('during-tightness').value, 10),
+    duringInjuredAreaPain:         parseInt(document.getElementById('during-pain').value, 10),
+    duringSurroundingAreaTightness: parseInt(document.getElementById('during-surrounding-tightness').value, 10),
+    duringSurroundingAreaPain:     parseInt(document.getElementById('during-surrounding-pain').value, 10),
+  };
+  try {
+    await apiFetch('/checkin', { method: 'POST', body: JSON.stringify(payload) });
+    showToast('During activity check-in saved', 'success');
+    lockCheckinCard('during', duringCheckinSummary(payload));
     await loadCheckinTab();
   } catch (err) {
     showToast('Failed to save: ' + err.message, 'error');
@@ -1463,20 +1777,29 @@ async function saveMorningCheckin() {
 
 async function saveEveningCheckin() {
   const date = getTodayStr();
+  const LIFESTYLE_VALUES = ['Healthy Diet', 'Hydrated', 'Good Sleep'];
   const recoveryTools = Array.from(
     document.querySelectorAll('#tab-checkin input[type="checkbox"]:checked')
-  ).map(cb => cb.value);
+  ).map(cb => cb.value).filter(v => !LIFESTYLE_VALUES.includes(v));
+  const lifestyleFactors = Array.from(
+    document.querySelectorAll('#tab-checkin input[type="checkbox"]:checked')
+  ).map(cb => cb.value).filter(v => LIFESTYLE_VALUES.includes(v));
 
+  const injuryId = document.getElementById('evening-injury-select').value || null;
   const payload = {
     date,
-    eveningPain:    parseInt(document.getElementById('evening-pain').value, 10),
-    fatigue:        parseInt(document.getElementById('evening-fatigue').value, 10),
+    injuryId,
+    eveningInjuredAreaPain:     parseInt(document.getElementById('evening-injured-pain').value, 10),
+    eveningSurroundingAreaPain: parseInt(document.getElementById('evening-surrounding-pain').value, 10),
+    fatigue:                    parseInt(document.getElementById('evening-fatigue').value, 10),
     recoveryTools,
+    lifestyleFactors,
   };
 
   try {
     await apiFetch('/checkin', { method: 'POST', body: JSON.stringify(payload) });
     showToast('Evening check-in saved', 'success');
+    lockCheckinCard('evening', eveningCheckinSummary(payload));
     await loadCheckinTab();
   } catch (err) {
     showToast('Failed to save: ' + err.message, 'error');
@@ -1629,8 +1952,6 @@ async function handleInjuryToggle(checked) {
     renderInjuryPanel();
   } catch (err) {
     showToast('Failed to update: ' + err.message, 'error');
-    // Revert toggle
-    document.getElementById('injury-toggle').checked = !checked;
   }
 }
 
@@ -1691,11 +2012,8 @@ function formatFullDate(dateStr) {
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
-function formatDuration(seconds) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+function escapeHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function formatHours(decimalHours) {
@@ -1723,17 +2041,19 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => activateTab(btn.dataset.tab));
   });
 
-  // Subtab navigation
-  document.querySelectorAll('.subtab-btn').forEach(btn => {
-    btn.addEventListener('click', () => activateSubtab(btn.dataset.subtab));
-  });
-
   // Sliders — live display
   [
-    ['morning-stiffness', 'val-stiffness'],
-    ['morning-pain',      'val-pain'],
-    ['evening-pain',      'val-evening-pain'],
-    ['evening-fatigue',   'val-fatigue'],
+    ['morning-tightness',           'val-injured-tightness'],
+    ['morning-pain',                'val-injured-pain'],
+    ['surrounding-tightness',       'val-surrounding-tightness'],
+    ['surrounding-pain',            'val-surrounding-pain'],
+    ['during-tightness',            'val-during-injured-tightness'],
+    ['during-pain',                 'val-during-injured-pain'],
+    ['during-surrounding-tightness','val-during-surrounding-tightness'],
+    ['during-surrounding-pain',     'val-during-surrounding-pain'],
+    ['evening-injured-pain',        'val-evening-injured-pain'],
+    ['evening-surrounding-pain',    'val-evening-surrounding-pain'],
+    ['evening-fatigue',             'val-fatigue'],
   ].forEach(([sliderId, valId]) => {
     const slider = document.getElementById(sliderId);
     slider.addEventListener('input', () => {
@@ -1741,24 +2061,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Tender to touch toggle
-  document.querySelectorAll('[data-field="tenderToTouch"]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state.tenderToTouch = btn.dataset.value === 'true';
-      document.querySelectorAll('[data-field="tenderToTouch"]').forEach(b => {
-        b.classList.toggle('active', b.dataset.value === btn.dataset.value);
-      });
-    });
-  });
-
   // Check-in save buttons
   document.getElementById('btn-save-morning').addEventListener('click', saveMorningCheckin);
+  document.getElementById('btn-save-during').addEventListener('click', saveDuringCheckin);
   document.getElementById('btn-save-evening').addEventListener('click', saveEveningCheckin);
 
-  // Injury toggle
-  document.getElementById('injury-toggle').addEventListener('change', e => {
-    handleInjuryToggle(e.target.checked);
-  });
+  // Edit (unlock) buttons
+  document.getElementById('btn-edit-morning').addEventListener('click', () => unlockCheckinCard('morning'));
+  document.getElementById('btn-edit-during').addEventListener('click',  () => unlockCheckinCard('during'));
+  document.getElementById('btn-edit-evening').addEventListener('click', () => unlockCheckinCard('evening'));
+
+  // Create injury
+  document.getElementById('btn-create-injury').addEventListener('click', createInjury);
+
 
   // Metric toggle buttons (Progressive Load)
   document.querySelectorAll('.metric-btn').forEach(btn => {
@@ -1813,12 +2128,42 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-sync').addEventListener('click', syncActivities);
   document.getElementById('btn-sign-out').addEventListener('click', clearAuth);
 
-  // Day modal
-  document.getElementById('day-form').addEventListener('submit', saveDayModal);
-  document.getElementById('modal-close').addEventListener('click', closeDayModal);
-  document.getElementById('modal-delete').addEventListener('click', deleteDayModal);
-  document.getElementById('day-modal').addEventListener('click', e => {
-    if (e.target === document.getElementById('day-modal')) closeDayModal();
+  // Add Activity modal
+  document.getElementById('btn-add-activity').addEventListener('click', openAddActivityModal);
+  document.getElementById('add-activity-modal-close').addEventListener('click', closeAddActivityModal);
+  document.getElementById('btn-cancel-activity').addEventListener('click', closeAddActivityModal);
+  document.getElementById('btn-submit-activity').addEventListener('click', submitAddActivity);
+  document.getElementById('add-activity-modal').addEventListener('click', e => {
+    if (e.target === document.getElementById('add-activity-modal')) closeAddActivityModal();
+  });
+
+  // Activity type → show/hide pace/power fields
+  document.getElementById('act-type').addEventListener('change', e => {
+    updateActivityTypeFields(e.target.value);
+  });
+
+  // Distance unit toggle
+  document.getElementById('act-distance-unit-toggle').querySelectorAll('.unit-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.actDistanceUnit = btn.dataset.unit;
+      document.getElementById('act-distance-unit-toggle').querySelectorAll('.unit-toggle-btn')
+        .forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
+
+  // Elevation unit toggle
+  document.getElementById('act-elevation-unit-toggle').querySelectorAll('.unit-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.actElevationUnit = btn.dataset.unit;
+      document.getElementById('act-elevation-unit-toggle').querySelectorAll('.unit-toggle-btn')
+        .forEach(b => b.classList.toggle('active', b === btn));
+    });
+  });
+
+  // Re-auth sign-out button inside modal
+  document.getElementById('btn-reauth-signout').addEventListener('click', () => {
+    closeAddActivityModal();
+    clearAuth();
   });
 
   // Init

@@ -4,7 +4,7 @@ const { GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sd
 const { BatchGetCommand, BatchWriteCommand } = require('@aws-sdk/lib-dynamodb');
 const { dynamo } = require('./shared/dynamo');
 const { withAuth, response } = require('./shared/auth');
-const { getValidToken, fetchActivitiesSince, fetchAthleteZones, fetchActivityStreams, fetchAthleteFTP } = require('./shared/strava');
+const { getValidToken, fetchActivitiesSince, fetchAthleteZones, fetchActivityStreams, fetchAthleteFTP, createActivity, deleteActivity } = require('./shared/strava');
 const { getWeekStart, getWeekStartNWeeksAgo } = require('./shared/weekStart');
 
 // 8-week TTL in seconds
@@ -148,28 +148,11 @@ function isFullyProcessed(stored, rawType, currentPaceThresholds) {
   return true;
 }
 
-exports.handler = async (event) => {
-  const method = event.httpMethod;
-  const path = event.path || '';
-
-  if (method === 'OPTIONS') {
-    return response(200, {});
-  }
-
-  // POST /activities/sync — fetch from Strava, store in DynamoDB
-  if (method === 'POST' && path.includes('/sync')) {
-    return withAuth(async (event, userId) => {
-      // Fetch user record to get tokens + cached HR zones / FTP
-      const userResult = await dynamo.send(new GetCommand({
-        TableName: process.env.USERS_TABLE,
-        Key: { userId },
-      }));
-
-      if (!userResult.Item) {
-        return response(404, { error: 'User not found' });
-      }
-
-      const user = userResult.Item;
+/**
+ * Fetches and processes all Strava activities for a user, storing them in DynamoDB.
+ * Returns { synced, deleted }.
+ */
+async function syncUserActivities(userId, user) {
       const accessToken = await getValidToken(user);
 
       // Fetch and store the athlete's HR zones (cached on user record for future syncs)
@@ -239,7 +222,7 @@ exports.handler = async (event) => {
       }
 
       if (activities.length === 0) {
-        return response(200, { synced: 0, deleted: toDelete.length });
+        return { synced: 0, deleted: toDelete.length };
       }
 
       // Batch-check which activities are already fully processed to avoid
@@ -362,13 +345,13 @@ exports.handler = async (event) => {
         ExpressionAttributeValues: { ':ts': new Date().toISOString() },
       }));
 
-      return response(200, { synced: syncCount, deleted: toDelete.length });
-    })(event);
-  }
+      return { synced: syncCount, deleted: toDelete.length };
+}
 
-  // GET /activities — return weekly aggregates for last 8 weeks
-  if (method === 'GET') {
-    return withAuth(async (event, userId) => {
+/**
+ * Queries DynamoDB for the last 8 weeks of activities and returns weekly aggregate buckets.
+ */
+async function buildWeeklyAggregates(userId) {
       const eightWeeksAgoMonday = getWeekStartNWeeksAgo(8);
 
       const result = await dynamo.send(new QueryCommand({
@@ -435,10 +418,282 @@ exports.handler = async (event) => {
           hrZones: [0, 0, 0, 0, 0],
           paceZones: [0, 0, 0, 0, 0, 0, 0],
           powerZones: [0, 0, 0, 0, 0, 0, 0],
-          gradeZones: [0, 0, 0, 0, 0, 0],
+          gradeZones: [0, 0, 0, 0],
         });
       }
 
+      return weeks;
+}
+
+/**
+ * Infer zone arrays from a single average metric, assigning full elapsed_time to the matching zone.
+ */
+function inferHrZones(avgHr, elapsedTime, hrZones) {
+  const result = [0, 0, 0, 0, 0];
+  if (!avgHr || !hrZones || hrZones.length === 0) return result;
+  let zoneIdx = 0;
+  for (let z = hrZones.length - 1; z >= 0; z--) {
+    if (avgHr >= hrZones[z].min) { zoneIdx = z; break; }
+  }
+  if (zoneIdx < result.length) result[zoneIdx] = elapsedTime;
+  return result;
+}
+
+function inferPaceZones(avgPaceMiMin, elapsedTime, paceThresholds) {
+  const result = [0, 0, 0, 0, 0, 0, 0];
+  if (!avgPaceMiMin) return result;
+  // Convert min:sec per mile string to m/s
+  const parts = String(avgPaceMiMin).split(':');
+  const totalSec = parseInt(parts[0], 10) * 60 + (parseInt(parts[1], 10) || 0);
+  if (!totalSec) return result;
+  const metersPerSec = 1609.344 / totalSec;
+  const thr = (Array.isArray(paceThresholds) && paceThresholds.length === 6) ? paceThresholds : PACE_THRESHOLDS_MS;
+  let bucket = thr.length;
+  for (let t = 0; t < thr.length; t++) {
+    if (metersPerSec < thr[t]) { bucket = t; break; }
+  }
+  result[bucket] = elapsedTime;
+  return result;
+}
+
+function inferPowerZones(avgPower, elapsedTime, ftp) {
+  const result = [0, 0, 0, 0, 0, 0, 0];
+  if (!avgPower || !ftp) return result;
+  const thresholds = POWER_ZONE_PCTS.map(pct => pct * ftp);
+  let zone = thresholds.length;
+  for (let t = 0; t < thresholds.length; t++) {
+    if (avgPower < thresholds[t]) { zone = t; break; }
+  }
+  result[zone] = elapsedTime;
+  return result;
+}
+
+exports.handler = async (event) => {
+  const method = event.httpMethod;
+  const path = event.path || '';
+
+  if (method === 'OPTIONS') {
+    return response(200, {});
+  }
+
+  // POST /activities/sync — fetch from Strava, store in DynamoDB
+  if (method === 'POST' && path.includes('/sync')) {
+    return withAuth(async (event, userId) => {
+      // Fetch user record to get tokens + cached HR zones / FTP
+      const userResult = await dynamo.send(new GetCommand({
+        TableName: process.env.USERS_TABLE,
+        Key: { userId },
+      }));
+
+      if (!userResult.Item) {
+        return response(404, { error: 'User not found' });
+      }
+
+      const user = userResult.Item;
+      const { synced, deleted } = await syncUserActivities(userId, user);
+      return response(200, { synced, deleted });
+    })(event);
+  }
+
+  // POST /activities/manual — create a manual activity
+  if (method === 'POST' && path.includes('/manual')) {
+    return withAuth(async (event, userId) => {
+      const body = JSON.parse(event.body || '{}');
+      const { name, sport_type, start_date_local, distanceValue, distanceUnit,
+              elevationValue, elevationUnit, avgHr, avgPace, avgPower,
+              description } = body;
+      const hours = parseInt(body.hours || 0, 10);
+      const minutes = parseInt(body.minutes || 0, 10);
+      const seconds = parseInt(body.seconds || 0, 10);
+      const elapsed_time = hours * 3600 + minutes * 60 + seconds;
+
+      if (!name || !sport_type || !start_date_local || !elapsed_time) {
+        return response(400, { error: 'name, sport_type, start_date_local, and duration are required' });
+      }
+
+      // Unit conversions
+      let distanceMeters = 0;
+      if (distanceValue) {
+        distanceMeters = distanceUnit === 'km'
+          ? Math.round(parseFloat(distanceValue) * 1000)
+          : Math.round(parseFloat(distanceValue) * 1609.344);
+      }
+      let elevationMeters = 0;
+      if (elevationValue) {
+        elevationMeters = elevationUnit === 'm'
+          ? Math.round(parseFloat(elevationValue))
+          : Math.round(parseFloat(elevationValue) * 0.3048);
+      }
+
+      // Fetch user for token + zones
+      const userResult = await dynamo.send(new GetCommand({
+        TableName: process.env.USERS_TABLE,
+        Key: { userId },
+      }));
+      if (!userResult.Item) return response(404, { error: 'User not found' });
+      const user = userResult.Item;
+
+      let accessToken;
+      try {
+        accessToken = await getValidToken(user);
+      } catch (e) {
+        return response(403, { error: 'reauth_required', message: 'Unable to get valid Strava token.' });
+      }
+
+      // Build Strava payload
+      const stravaPayload = {
+        name,
+        sport_type,
+        start_date_local,
+        elapsed_time,
+        ...(distanceMeters ? { distance: distanceMeters } : {}),
+        ...(elevationMeters ? { total_elevation_gain: elevationMeters } : {}),
+        ...(description ? { description } : {}),
+      };
+
+      let created;
+      try {
+        created = await createActivity(accessToken, stravaPayload);
+      } catch (e) {
+        if (e.message === 'reauth_required') {
+          return response(403, { error: 'reauth_required', message: 'StayStacking needs write access to Strava. Please sign out and reconnect.' });
+        }
+        throw e;
+      }
+
+      // Zone inference from averages
+      const hrZones = user.hrZones || null;
+      const ftp = user.ftp || null;
+      const paceThresholds = user.vdotThresholds || null;
+      const normalizedType = normalizeActivityType(sport_type);
+
+      const activityHrZones = avgHr ? inferHrZones(avgHr, elapsed_time, hrZones) : [0, 0, 0, 0, 0];
+      const activityPaceZones = (normalizedType === 'Run' || sport_type === 'Hike' || sport_type === 'Walk') && avgPace
+        ? inferPaceZones(avgPace, elapsed_time, paceThresholds)
+        : (normalizedType === 'Run' ? [0, 0, 0, 0, 0, 0, 0] : null);
+      const activityPowerZones = normalizedType === 'Cycling' && avgPower
+        ? inferPowerZones(avgPower, elapsed_time, ftp)
+        : (normalizedType === 'Cycling' ? [0, 0, 0, 0, 0, 0, 0] : null);
+
+      const dateStr = start_date_local.split('T')[0];
+      const weekStart = getWeekStart(dateStr);
+      const ttl = Math.floor(Date.now() / 1000) + EIGHT_WEEKS_SECONDS;
+      const activityIdStr = String(created.id);
+
+      const item = {
+        userId,
+        activityId: activityIdStr,
+        date: dateStr,
+        distance: distanceMeters,
+        elevation: elevationMeters,
+        time: elapsed_time,
+        activityType: normalizedType,
+        weekStart,
+        hrZones: activityHrZones,
+        ttl,
+        isManual: true,
+        stravaActivityId: activityIdStr,
+        name,
+      };
+      if (activityPaceZones !== null) {
+        item.paceZones = activityPaceZones;
+        item.paceZoneThresholds = paceThresholds || PACE_THRESHOLDS_MS;
+      }
+      if (activityPowerZones !== null) item.powerZones = activityPowerZones;
+
+      await dynamo.send(new PutCommand({
+        TableName: process.env.ACTIVITIES_TABLE,
+        Item: item,
+      }));
+
+      const weeks = await buildWeeklyAggregates(userId);
+      return response(200, { activityId: activityIdStr, weeks });
+    })(event);
+  }
+
+  // GET /activities/manual — return manually logged activities for this user
+  if (method === 'GET' && path.includes('/manual')) {
+    return withAuth(async (event, userId) => {
+      const eightWeeksAgoMonday = getWeekStartNWeeksAgo(8);
+      const result = await dynamo.send(new QueryCommand({
+        TableName: process.env.ACTIVITIES_TABLE,
+        IndexName: 'userId-weekStart-index',
+        KeyConditionExpression: 'userId = :uid AND weekStart >= :minWeek',
+        FilterExpression: 'isManual = :t',
+        ExpressionAttributeValues: {
+          ':uid': userId,
+          ':minWeek': eightWeeksAgoMonday,
+          ':t': true,
+        },
+      }));
+
+      const items = (result.Items || [])
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+        .map(a => ({
+          activityId: a.activityId,
+          stravaActivityId: a.stravaActivityId,
+          name: a.name,
+          activityType: a.activityType,
+          startDate: a.date,
+          distance: a.distance,
+          elevation: a.elevation,
+          elapsedTime: a.time,
+        }));
+
+      return response(200, { activities: items });
+    })(event);
+  }
+
+  // DELETE /activities/manual/{activityId} — delete from Strava + DynamoDB
+  if (method === 'DELETE' && path.includes('/manual/')) {
+    return withAuth(async (event, userId) => {
+      const pathParts = path.split('/');
+      const activityId = pathParts[pathParts.length - 1];
+
+      if (!activityId) return response(400, { error: 'activityId is required' });
+
+      // Fetch the record to get stravaActivityId
+      const getResult = await dynamo.send(new GetCommand({
+        TableName: process.env.ACTIVITIES_TABLE,
+        Key: { userId, activityId },
+      }));
+      const record = getResult.Item;
+      if (!record) return response(404, { error: 'Activity not found' });
+
+      // Get valid token
+      const userResult = await dynamo.send(new GetCommand({
+        TableName: process.env.USERS_TABLE,
+        Key: { userId },
+      }));
+      if (!userResult.Item) return response(404, { error: 'User not found' });
+      const accessToken = await getValidToken(userResult.Item);
+
+      // Delete from Strava (ignore 404 — already gone)
+      try {
+        await deleteActivity(accessToken, record.stravaActivityId || activityId);
+      } catch (e) {
+        if (e.message === 'reauth_required') {
+          return response(403, { error: 'reauth_required', message: 'StayStacking needs write access to Strava. Please sign out and reconnect.' });
+        }
+        if (e.message !== 'not_found') throw e;
+      }
+
+      // Delete from DynamoDB
+      const { DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+      await dynamo.send(new DeleteCommand({
+        TableName: process.env.ACTIVITIES_TABLE,
+        Key: { userId, activityId },
+      }));
+
+      const weeks = await buildWeeklyAggregates(userId);
+      return response(200, { deleted: true, weeks });
+    })(event);
+  }
+
+  // GET /activities — return weekly aggregates for last 8 weeks
+  if (method === 'GET') {
+    return withAuth(async (event, userId) => {
+      const weeks = await buildWeeklyAggregates(userId);
       return response(200, { weeks });
     })(event);
   }

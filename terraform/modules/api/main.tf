@@ -453,6 +453,47 @@ module "activities_sync_post" {
   frontend_url = var.frontend_url
 }
 
+resource "aws_api_gateway_resource" "activities_manual" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.activities.id
+  path_part   = "manual"
+}
+
+module "activities_manual_post" {
+  source       = "./route"
+  rest_api_id  = aws_api_gateway_rest_api.main.id
+  resource_id  = aws_api_gateway_resource.activities_manual.id
+  http_method  = "POST"
+  lambda_arn   = aws_lambda_function.activities.invoke_arn
+  frontend_url = var.frontend_url
+}
+
+module "activities_manual_get" {
+  source         = "./route"
+  rest_api_id    = aws_api_gateway_rest_api.main.id
+  resource_id    = aws_api_gateway_resource.activities_manual.id
+  http_method    = "GET"
+  lambda_arn     = aws_lambda_function.activities.invoke_arn
+  frontend_url   = var.frontend_url
+  create_options = false
+}
+
+resource "aws_api_gateway_resource" "activities_manual_id" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.activities_manual.id
+  path_part   = "{activityId}"
+}
+
+module "activities_manual_delete" {
+  source         = "./route"
+  rest_api_id    = aws_api_gateway_rest_api.main.id
+  resource_id    = aws_api_gateway_resource.activities_manual_id.id
+  http_method    = "DELETE"
+  lambda_arn     = aws_lambda_function.activities.invoke_arn
+  frontend_url   = var.frontend_url
+  create_options = true
+}
+
 # -------------------------------------------------------
 # /training-plan resource
 # -------------------------------------------------------
@@ -584,6 +625,9 @@ resource "aws_api_gateway_deployment" "main" {
       module.checkin_post,
       module.activities_get,
       module.activities_sync_post,
+      module.activities_manual_post,
+      module.activities_manual_get,
+      module.activities_manual_delete,
       module.training_plan_get,
       module.training_plan_date_post,
       module.training_plan_date_delete,

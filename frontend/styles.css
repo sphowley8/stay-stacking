@@ -387,16 +387,16 @@ html, body {
 .checkbox-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 4px;
 }
 
 .check-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.88rem;
+  gap: 6px;
+  font-size: 0.76rem;
   cursor: pointer;
-  padding: 6px;
+  padding: 4px 6px;
   border-radius: 6px;
   border: 1.5px solid transparent;
   transition: border-color 0.12s;
@@ -463,6 +463,69 @@ html, body {
 /* ============================================================
    INJURY TRACKING
    ============================================================ */
+
+.injury-naming-hint {
+  font-size: 0.82rem;
+  color: var(--slate);
+  margin: -4px 0 12px;
+  line-height: 1.5;
+}
+
+.injury-create-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.injury-name-input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.injury-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.injury-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.injury-list-name {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.injury-list-date {
+  font-size: 0.78rem;
+  color: var(--slate);
+  white-space: nowrap;
+}
+
+.btn-danger {
+  background: #fdf0ec;
+  color: var(--coral);
+  border: 1px solid var(--coral);
+}
+.btn-danger:hover {
+  background: var(--coral);
+  color: #fff;
+}
 
 .injury-toggle-row {
   display: flex;
@@ -1124,6 +1187,172 @@ html, body {
   background: var(--earth);
 }
 
+.card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.card-title-row .card-title {
+  margin-bottom: 0;
+}
+
+.card-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Completed check-in card */
+.card--completed {
+  background: rgba(165, 214, 167, 0.18);
+  border-color: #a5d6a7;
+}
+
+.card--completed .checkin-form-body {
+  display: none;
+}
+
+.checkin-summary {
+  font-size: 0.85rem;
+  color: var(--slate);
+  line-height: 1.7;
+  margin-bottom: 4px;
+}
+
+.checkin-summary strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.btn-edit-checkin {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: none;
+  border: 1px solid var(--primary);
+  border-radius: 5px;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-edit-checkin:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
+.info-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid #e6ac00;
+  background: #ffe066;
+  color: #7a5800;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.info-btn:hover {
+  background: #ffd000;
+  border-color: #b38600;
+}
+
+.symptom-injury-filter {
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  max-width: 200px;
+}
+
+.symptom-chart-wrap {
+  position: relative;
+  height: 240px;
+  margin-top: 12px;
+}
+
+.symptom-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 4px;
+}
+
+.symptom-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  color: var(--slate);
+}
+
+.symptom-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pain-scale-modal-card {
+  max-width: 420px;
+  width: 92%;
+}
+
+.pain-scale-body {
+  padding: 0 20px 20px;
+}
+
+.pain-scale-intro {
+  font-size: 0.85rem;
+  color: var(--slate);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.pain-scale-group {
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.pain-scale-green  { background: #f0faf0; border: 1px solid #a5d6a7; }
+.pain-scale-yellow { background: #fffde7; border: 1px solid #ffe082; }
+.pain-scale-orange { background: #fff3e0; border: 1px solid #ffb74d; }
+.pain-scale-red    { background: #fdf0ec; border: 1px solid #ef9a9a; }
+
+.pain-scale-range-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+  letter-spacing: 0.01em;
+}
+
+.pain-scale-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.pain-scale-num {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+  width: 16px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.pain-scale-desc {
+  font-size: 0.85rem;
+  color: var(--slate);
+}
+
 .help-modal-card {
   max-width: 480px;
   width: 92%;
@@ -1575,4 +1804,166 @@ html, body {
   border-top: 1px solid var(--border);
   padding-top: 6px;
   margin-top: 4px;
+}
+
+/* ============================================================
+   ACTIVITY LOG TAB
+   ============================================================ */
+
+.activity-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.activity-log-header .section-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--slate);
+}
+
+.manual-activity-registry {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.registry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--card-bg);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  gap: 10px;
+}
+
+.registry-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.registry-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--slate);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.registry-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* ============================================================
+   ADD ACTIVITY MODAL
+   ============================================================ */
+
+.add-activity-modal-card {
+  max-width: 440px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.add-activity-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+#add-activity-form-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.duration-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.duration-part {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.duration-part .text-input {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.duration-unit-label {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.input-unit-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.input-unit-row .text-input {
+  flex: 1;
+}
+
+.unit-toggle-group {
+  display: flex;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.unit-toggle-btn {
+  padding: 7px 12px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.unit-toggle-btn.active {
+  background: var(--earth);
+  color: var(--white);
+}
+
+.act-description {
+  resize: vertical;
+  min-height: 56px;
+}
+
+.reauth-msg {
+  background: #fff3e0;
+  border: 1.5px solid #ffb300;
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.reauth-msg p {
+  font-size: 0.88rem;
+  color: var(--slate);
+  margin-bottom: 10px;
+}
+
+.required {
+  color: #ef5350;
+  font-size: 0.8rem;
 }
