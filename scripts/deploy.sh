@@ -18,7 +18,7 @@ set -euo pipefail
 ENVIRONMENT=${1:-prod}
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Load environment-specific .env file (exports AWS_PROFILE, FRONTEND_URL, ACM_CERTIFICATE_ARN, secrets)
+# Load environment-specific .env file
 ENV_FILE="$REPO_ROOT/.env.$ENVIRONMENT"
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "ERROR: $ENV_FILE not found."
@@ -26,9 +26,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 echo "Loading $ENV_FILE..."
-set -a
-source "$ENV_FILE"
-set +a
+set -a; source "$ENV_FILE"; set +a
 
 echo "=========================================="
 echo " StayStacking Deploy — environment: $ENVIRONMENT"
@@ -37,10 +35,7 @@ echo "=========================================="
 # --- Validate required variables ---
 MISSING=0
 for VAR in JWT_SECRET STRAVA_CLIENT_ID STRAVA_CLIENT_SECRET FRONTEND_URL ACM_CERTIFICATE_ARN AWS_PROFILE; do
-  if [[ -z "${!VAR:-}" ]]; then
-    echo "ERROR: $VAR is not set"
-    MISSING=1
-  fi
+  if [[ -z "${!VAR:-}" ]]; then echo "ERROR: $VAR is not set"; MISSING=1; fi
 done
 [[ $MISSING -eq 1 ]] && echo "Set missing variables in $ENV_FILE and retry." && exit 1
 
@@ -58,50 +53,62 @@ TF_VARS=(
   -var="acm_certificate_arn=$ACM_CERTIFICATE_ARN"
 )
 
-# --- Step 1: Provision storage (S3 + CloudFront) ---
-echo ""
-echo "[1/7] Provisioning storage (S3 + CloudFront)..."
-cd "$REPO_ROOT/terraform"
-terraform init -input=false -reconfigure "${BACKEND_CONFIG[@]}"
-
-terraform apply -target=module.storage -auto-approve "${TF_VARS[@]}"
-DEPLOY_BUCKET=$(terraform output -raw deploy_bucket_name)
-
-# --- Step 2: Package Lambda functions ---
-echo ""
-echo "[2/7] Packaging Lambda functions..."
-
 LAMBDAS=("auth" "user" "checkin" "activities" "training-plan" "costs")
 SHARED_DIR="$REPO_ROOT/backend/lambdas/shared"
 TMP_DIR=$(mktemp -d)
 
-for lambda in "${LAMBDAS[@]}"; do
-  LAMBDA_DIR="$REPO_ROOT/backend/lambdas/$lambda"
-  echo "  Packaging $lambda..."
+# --- Step 1: Terraform init + get deploy bucket (skip apply if already provisioned) ---
+echo ""
+echo "[1/7] Initialising Terraform..."
+cd "$REPO_ROOT/terraform"
+terraform init -input=false -reconfigure "${BACKEND_CONFIG[@]}"
 
-  STAGE="$TMP_DIR/$lambda"
+# Only run storage apply if the bucket doesn't already exist in state
+if ! DEPLOY_BUCKET=$(terraform output -raw deploy_bucket_name 2>/dev/null); then
+  echo "  Storage not yet provisioned — running targeted apply..."
+  terraform apply -target=module.storage -auto-approve "${TF_VARS[@]}"
+  DEPLOY_BUCKET=$(terraform output -raw deploy_bucket_name)
+else
+  echo "  Storage already provisioned (bucket: $DEPLOY_BUCKET)"
+fi
+
+# --- Step 2: Package all Lambda functions in parallel ---
+echo ""
+echo "[2/7] Packaging Lambda functions (parallel)..."
+
+package_lambda() {
+  local lambda="$1"
+  local STAGE="$TMP_DIR/$lambda"
   mkdir -p "$STAGE"
-
-  cp -r "$LAMBDA_DIR/"* "$STAGE/"
+  cp -r "$REPO_ROOT/backend/lambdas/$lambda/"* "$STAGE/"
   mkdir -p "$STAGE/shared"
   cp "$SHARED_DIR/"*.js "$STAGE/shared/"
-
   cd "$STAGE"
   npm install --production --silent
+  zip -r "$TMP_DIR/${lambda}.zip" . --quiet
+  echo "  Packaged $lambda ($(du -sh "$TMP_DIR/${lambda}.zip" | cut -f1))"
+}
 
-  ZIP_FILE="$TMP_DIR/${lambda}.zip"
-  zip -r "$ZIP_FILE" . --quiet
-  echo "  Created $(basename "$ZIP_FILE") ($(du -sh "$ZIP_FILE" | cut -f1))"
-  cd "$REPO_ROOT"
-done
-
-# --- Step 3: Upload Lambda zips to S3 ---
-echo ""
-echo "[3/7] Uploading Lambda packages to S3..."
+PIDS=()
 for lambda in "${LAMBDAS[@]}"; do
-  aws s3 cp "$TMP_DIR/${lambda}.zip" "s3://$DEPLOY_BUCKET/${lambda}.zip" --quiet --profile "$AWS_PROFILE"
-  echo "  Uploaded ${lambda}.zip"
+  package_lambda "$lambda" &
+  PIDS+=($!)
 done
+FAILED=0
+for PID in "${PIDS[@]}"; do wait "$PID" || FAILED=1; done
+[[ $FAILED -eq 1 ]] && echo "ERROR: Lambda packaging failed" && exit 1
+cd "$REPO_ROOT"
+
+# --- Step 3: Upload all Lambda zips to S3 in parallel ---
+echo ""
+echo "[3/7] Uploading Lambda packages to S3 (parallel)..."
+PIDS=()
+for lambda in "${LAMBDAS[@]}"; do
+  (aws s3 cp "$TMP_DIR/${lambda}.zip" "s3://$DEPLOY_BUCKET/${lambda}.zip" \
+    --quiet --profile "$AWS_PROFILE" && echo "  Uploaded ${lambda}.zip") &
+  PIDS+=($!)
+done
+for PID in "${PIDS[@]}"; do wait "$PID" || { echo "ERROR: S3 upload failed"; exit 1; }; done
 
 # --- Step 4: Apply full infrastructure ---
 echo ""
@@ -116,48 +123,42 @@ APP_URL=$(terraform output -raw app_url)
 JWT_SECRET_ARN=$(terraform output -raw jwt_secret_arn)
 STRAVA_SECRET_ARN=$(terraform output -raw strava_secret_arn)
 
-# --- Step 4b: Force-update Lambda code from S3 ---
-# Terraform only updates Lambda code when config changes (e.g. env vars).
-# Always push the latest zip regardless to ensure code changes are deployed.
+# --- Step 4b: Force-update all Lambda code in parallel ---
 echo ""
-echo "[4b] Force-updating Lambda code from S3..."
+echo "[4b] Force-updating Lambda code from S3 (parallel)..."
+PIDS=()
 for lambda in "${LAMBDAS[@]}"; do
-  FUNCTION_NAME="staystacking-${lambda}-${ENVIRONMENT}"
-  aws lambda update-function-code \
-    --function-name "$FUNCTION_NAME" \
+  (aws lambda update-function-code \
+    --function-name "staystacking-${lambda}-${ENVIRONMENT}" \
     --s3-bucket "$DEPLOY_BUCKET" \
     --s3-key "${lambda}.zip" \
     --region us-east-1 --profile "$AWS_PROFILE" \
-    --output text --query 'FunctionName' | xargs -I{} echo "  Updated: {}"
+    --output text --query 'FunctionName' | xargs -I{} echo "  Updated: {}") &
+  PIDS+=($!)
 done
+for PID in "${PIDS[@]}"; do wait "$PID" || { echo "ERROR: Lambda update failed"; exit 1; }; done
 
-# --- Step 5: Push secrets to AWS Secrets Manager ---
+# --- Step 5: Push secrets to AWS Secrets Manager (parallel) ---
 echo ""
-echo "[5/7] Pushing secrets to AWS Secrets Manager..."
-
-aws secretsmanager put-secret-value \
-  --secret-id "$JWT_SECRET_ARN" \
-  --secret-string "$JWT_SECRET" \
-  --region us-east-1 --profile "$AWS_PROFILE" \
-  --output text --query 'Name' | xargs -I{} echo "  Updated: {}"
-
+echo "[5/7] Pushing secrets to AWS Secrets Manager (parallel)..."
 STRAVA_JSON="{\"client_id\":\"$STRAVA_CLIENT_ID\",\"client_secret\":\"$STRAVA_CLIENT_SECRET\"}"
-aws secretsmanager put-secret-value \
-  --secret-id "$STRAVA_SECRET_ARN" \
-  --secret-string "$STRAVA_JSON" \
+(aws secretsmanager put-secret-value \
+  --secret-id "$JWT_SECRET_ARN" --secret-string "$JWT_SECRET" \
   --region us-east-1 --profile "$AWS_PROFILE" \
-  --output text --query 'Name' | xargs -I{} echo "  Updated: {}"
-
+  --output text --query 'Name' | xargs -I{} echo "  Updated: {}") &
+(aws secretsmanager put-secret-value \
+  --secret-id "$STRAVA_SECRET_ARN" --secret-string "$STRAVA_JSON" \
+  --region us-east-1 --profile "$AWS_PROFILE" \
+  --output text --query 'Name' | xargs -I{} echo "  Updated: {}") &
+wait
 echo "  Secrets stored in Secrets Manager (not in Lambda env vars)"
 
 # --- Step 6: Build and upload frontend ---
 echo ""
 echo "[6/7] Deploying frontend..."
-
 FRONTEND_TMP="$TMP_DIR/frontend"
 cp -r "$REPO_ROOT/frontend/." "$FRONTEND_TMP/"
 sed "s|__API_URL__|$API_URL|g" "$REPO_ROOT/frontend/app.js" > "$FRONTEND_TMP/app.js"
-# Staging banner: show in staging, hide in prod
 if [[ "$ENVIRONMENT" == "staging" ]]; then
   sed -i '' "s|__STAGING_BANNER__|staging-banner|g" "$FRONTEND_TMP/index.html"
 else
@@ -165,10 +166,8 @@ else
 fi
 
 aws s3 sync "$FRONTEND_TMP/" "s3://$FRONTEND_BUCKET/" \
-  --delete \
-  --cache-control "max-age=300" \
+  --delete --cache-control "max-age=300" \
   --quiet --profile "$AWS_PROFILE"
-
 echo "  Frontend uploaded to s3://$FRONTEND_BUCKET/"
 
 # --- Step 7: Invalidate CloudFront cache ---
@@ -183,7 +182,6 @@ aws cloudfront create-invalidation \
 # --- Cleanup ---
 rm -rf "$TMP_DIR"
 
-# --- Summary ---
 echo ""
 echo "=========================================="
 echo " Deploy complete!"

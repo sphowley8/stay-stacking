@@ -1601,6 +1601,7 @@ function openAddActivityModal() {
   document.getElementById('act-description').value = '';
   document.getElementById('add-activity-reauth-msg').classList.add('hidden');
   document.getElementById('add-activity-form-wrap').classList.remove('hidden');
+  document.querySelector('.add-activity-modal-card').scrollTop = 0;
   updateActivityTypeFields('Run');
   document.getElementById('add-activity-modal').classList.remove('hidden');
 }
@@ -1665,7 +1666,10 @@ async function submitAddActivity() {
     await loadPlanTab();
   } catch (err) {
     if (err.message === 'reauth_required') {
+      document.getElementById('add-activity-form-wrap').classList.add('hidden');
       document.getElementById('add-activity-reauth-msg').classList.remove('hidden');
+      document.querySelector('.add-activity-modal-card').scrollTop = 0;
+      showToast('Strava write access required — sign out and reconnect', 'error');
     } else if (err.message !== 'unauthorized') {
       showToast('Failed to save: ' + err.message, 'error');
     }
@@ -1966,7 +1970,8 @@ function showToast(message, type = '') {
   toast.className = `toast ${type}`;
   toast.classList.remove('hidden');
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.add('hidden'), 2800);
+  const duration = type === 'error' ? 5000 : 2800;
+  toastTimer = setTimeout(() => toast.classList.add('hidden'), duration);
 }
 
 // ============================================================

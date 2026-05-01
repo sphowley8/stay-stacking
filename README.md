@@ -121,58 +121,120 @@ Cycling HR samples receive a +13 BPM bias before zone assignment to normalize cy
 
 ---
 
+## Environments
+
+StayStacking runs two fully isolated environments — **prod** and **staging** — each in its own AWS account.
+
+| | Prod | Staging |
+|---|---|---|
+| AWS Account | `527658263602` | `350105844643` |
+| URL | `https://stay-stacking.sean-howley.com` | `https://staging.stay-stacking.sean-howley.com` |
+| AWS CLI Profile | `prod` | `staging` |
+| Terraform state bucket | `staystacking-terraform-state-prod` | `staystacking-terraform-state-staging` |
+| Terraform state lock table | `staystacking-terraform-locks-prod` | `staystacking-terraform-locks-staging` |
+| DynamoDB tables | `staystacking-*-prod` | `staystacking-*-staging` |
+| Lambda functions | `staystacking-*-prod` | `staystacking-*-staging` |
+
+**Route 53 DNS lives in the prod account** for both environments. The staging CloudFront distribution is pointed at `staging.stay-stacking.sean-howley.com` via a Route 53 alias record that Terraform creates in the prod account when deploying staging.
+
+**Staging banner:** staging deployments show a yellow banner at the top of the UI (`staging-banner` CSS class active). It is hidden in prod. This is handled by `deploy.sh` replacing the `__STAGING_BANNER__` placeholder in `index.html` at deploy time.
+
+**Cross-account costs:** the costs Lambda in each account can query Cost Explorer and DynamoDB in the *peer* account via STS `AssumeRole` into `staystacking-costs-cross-account-{env}`. Terraform provisions these IAM roles in both accounts automatically.
+
+---
+
 ## Usage
 
 ### Prerequisites
 
-- AWS CLI installed and configured (`aws configure`)
+- AWS CLI installed and configured with two named profiles: `prod` and `staging`
 - Terraform ≥ 1.3 installed
 - Node.js ≥ 18 installed (for Lambda packaging)
 - A Strava API app created at https://www.strava.com/settings/api
 
+### Environment Files
+
+Each environment reads its config from a `.env.<environment>` file at the repo root (gitignored). Create one for each environment:
+
+**.env.prod**
+```bash
+AWS_PROFILE=prod
+FRONTEND_URL=https://stay-stacking.sean-howley.com
+ACM_CERTIFICATE_ARN=arn:aws:acm:us-east-1:<prod-account-id>:certificate/<cert-id>
+JWT_SECRET=<random 32+ char string>
+STRAVA_CLIENT_ID=<Strava client ID>
+STRAVA_CLIENT_SECRET=<Strava client secret>
+```
+
+**.env.staging**
+```bash
+AWS_PROFILE=staging
+FRONTEND_URL=https://staging.stay-stacking.sean-howley.com
+ACM_CERTIFICATE_ARN=arn:aws:acm:us-east-1:<staging-account-id>:certificate/<cert-id>
+JWT_SECRET=<different random 32+ char string>
+STRAVA_CLIENT_ID=<Strava client ID>
+STRAVA_CLIENT_SECRET=<Strava client secret>
+```
+
+Secrets (JWT_SECRET, STRAVA_CLIENT_ID, STRAVA_CLIENT_SECRET) are pushed to **AWS Secrets Manager** by `deploy.sh` on every run — they are never stored in Terraform state or Lambda environment variables.
+
 ### First Deploy
 
 ```bash
-# 1. Set required secrets (never commit these)
-export TF_VAR_jwt_secret="$(openssl rand -base64 32)"
-export TF_VAR_strava_client_id="YOUR_STRAVA_CLIENT_ID"
-export TF_VAR_strava_client_secret="YOUR_STRAVA_CLIENT_SECRET"
+# Deploy prod
+./scripts/deploy.sh prod
 
-# 2. Deploy everything
-./scripts/deploy.sh [staging|prod]
-
-# 3. The script outputs:
-#    App URL:  https://stay-stacking.sean-howley.com
-#    API URL:  https://xxxx.execute-api.us-east-1.amazonaws.com/prod
+# Deploy staging (separate AWS account)
+./scripts/deploy.sh staging
 ```
 
-After first deploy, register the API Gateway domain as the **Authorization Callback Domain** in your Strava app settings, then open the App URL.
+Each deploy runs 7 steps: Terraform init → package Lambdas → upload to S3 → `terraform apply` → force-update Lambda code → push secrets → upload frontend + invalidate CloudFront.
+
+The script outputs the App URL and API URL when complete.
+
+After the first deploy, register the API Gateway domain as the **Authorization Callback Domain** in your Strava app settings (see [Strava App Registration](#strava-app-registration) below), then open the App URL.
 
 ### Re-deploy (after code changes)
 
 ```bash
-./scripts/deploy.sh [staging|prod]
+./scripts/deploy.sh prod
+# or
+./scripts/deploy.sh staging
 ```
+
+The two environments are completely independent — deploying one does not affect the other.
+
+### Seeding Staging with a Prod User
+
+To log into staging without going through Strava OAuth, copy your prod user record to staging and generate a staging JWT:
+
+```bash
+./scripts/seed-staging-user.sh
+```
+
+This reads `staystacking-users-prod`, copies the user item to `staystacking-users-staging`, and prints a `localStorage.setItem(...)` one-liner to paste into the browser console on the staging URL.
 
 ### Teardown
 
 ```bash
-./scripts/teardown.sh
+# Teardown a specific environment
+./scripts/teardown.sh [staging|prod]
 ```
 
 ### Strava App Registration
 
 1. Go to https://www.strava.com/settings/api
 2. Set **Authorization Callback Domain** = domain from `terraform output api_gateway_url` (no `https://`, no path)
-3. Note **Client ID** and **Client Secret** → used as `TF_VAR_strava_client_id` / `TF_VAR_strava_client_secret`
-4. Required OAuth scope: `activity:read_all`
+3. Note **Client ID** and **Client Secret** → set as `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` in your `.env.*` files
+4. Required OAuth scope: `activity:read_all,activity:write`
 
-### Environment Variables (Terraform)
+### .env File Reference
 
 | Variable | Description | Sensitive |
 |---|---|---|
-| `TF_VAR_region` | AWS region (default: us-east-1) | No |
-| `TF_VAR_environment` | Environment name (staging or prod) | No |
-| `TF_VAR_jwt_secret` | JWT signing secret (min 32 chars) | Yes |
-| `TF_VAR_strava_client_id` | Strava API client ID | Yes |
-| `TF_VAR_strava_client_secret` | Strava API client secret | Yes |
+| `AWS_PROFILE` | Named AWS CLI profile for this environment | No |
+| `FRONTEND_URL` | Full HTTPS URL of the frontend (CloudFront custom domain) | No |
+| `ACM_CERTIFICATE_ARN` | ACM cert ARN in us-east-1 for CloudFront (must be in the same account as the environment) | No |
+| `JWT_SECRET` | JWT signing secret (min 32 chars) — different per environment | Yes |
+| `STRAVA_CLIENT_ID` | Strava API client ID | Yes |
+| `STRAVA_CLIENT_SECRET` | Strava API client secret | Yes |

@@ -45,13 +45,21 @@ exports.handler = async (event) => {
 
       // Build UpdateExpression dynamically — only set provided fields
       const ALLOWED_FIELDS = [
-        'morningStiffness',
-        'morningPain',
-        'tenderToTouch',
-        'archFeels',
-        'eveningPain',
+        'injuryId',
+        'injuredAreaTightness',
+        'injuredAreaPain',
+        'surroundingAreaTightness',
+        'surroundingAreaPain',
+        'duringInjuryId',
+        'duringInjuredAreaTightness',
+        'duringInjuredAreaPain',
+        'duringSurroundingAreaTightness',
+        'duringSurroundingAreaPain',
+        'eveningInjuredAreaPain',
+        'eveningSurroundingAreaPain',
         'fatigue',
         'recoveryTools',
+        'lifestyleFactors',
       ];
 
       const updates = [];
