@@ -472,7 +472,7 @@
   <div id="add-activity-modal" class="modal-overlay hidden">
     <div class="modal-card add-activity-modal-card">
       <div class="modal-header">
-        <h3>Log Activity</h3>
+        <h3 id="add-activity-modal-title">Log Activity</h3>
         <button id="add-activity-modal-close" class="modal-close">&times;</button>
       </div>
       <div class="add-activity-body">
@@ -497,7 +497,7 @@
               <option value="BackcountrySki">Backcountry Ski</option>
             </select>
           </div>
-          <div class="form-row">
+          <div id="act-datetime-group" class="form-row">
             <div class="form-group">
               <label>Date <span class="required">*</span></label>
               <input type="date" id="act-date" class="text-input" />
@@ -559,6 +559,12 @@
           <div class="form-group">
             <label>Description (optional)</label>
             <textarea id="act-description" class="text-input act-description" rows="2" placeholder="Optional notes..."></textarea>
+          </div>
+          <div class="form-group form-group-checkbox">
+            <label class="checkbox-label">
+              <input type="checkbox" id="act-mute" />
+              Mute from feed (hide from followers on Strava)
+            </label>
           </div>
           <div class="modal-actions">
             <button id="btn-submit-activity" class="btn btn-primary">Save to Strava</button>

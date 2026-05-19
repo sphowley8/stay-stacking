@@ -52,7 +52,7 @@ function response(statusCode, body, extraHeaders = {}) {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': process.env.FRONTEND_URL || '*',
       'Access-Control-Allow-Headers': 'Authorization,Content-Type',
-      'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
       ...extraHeaders,
     },
     body: JSON.stringify(body),
@@ -68,6 +68,32 @@ function withAuth(handler) {
     try {
       const userId = await verifyToken(event.headers?.Authorization || event.headers?.authorization);
       return await handler(event, userId);
+    } catch (err) {
+      if (err.statusCode) {
+        return response(err.statusCode, { error: err.message });
+      }
+      console.error('Unhandled error:', err);
+      return response(500, { error: 'Internal server error' });
+    }
+  };
+}
+
+/**
+ * Wraps a Lambda handler with API key auth for service-to-service calls.
+ * Expects X-Api-Key header matching SECRET_EXTERNAL_API_KEY_ARN secret.
+ */
+function withApiKey(handler) {
+  return async (event) => {
+    try {
+      const provided = event.headers?.['X-Api-Key'] || event.headers?.['x-api-key'];
+      if (!provided) {
+        return response(401, { error: 'Missing X-Api-Key header' });
+      }
+      const expected = await getSecret(process.env.SECRET_EXTERNAL_API_KEY_ARN);
+      if (provided !== expected) {
+        return response(401, { error: 'Invalid API key' });
+      }
+      return await handler(event);
     } catch (err) {
       if (err.statusCode) {
         return response(err.statusCode, { error: err.message });
@@ -95,4 +121,4 @@ function withErrorHandling(handler) {
   };
 }
 
-module.exports = { verifyToken, signToken, response, withAuth, withErrorHandling };
+module.exports = { verifyToken, signToken, response, withAuth, withApiKey, withErrorHandling };

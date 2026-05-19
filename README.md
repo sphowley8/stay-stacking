@@ -238,3 +238,161 @@ This reads `staystacking-users-prod`, copies the user item to `staystacking-user
 | `JWT_SECRET` | JWT signing secret (min 32 chars) — different per environment | Yes |
 | `STRAVA_CLIENT_ID` | Strava API client ID | Yes |
 | `STRAVA_CLIENT_SECRET` | Strava API client secret | Yes |
+| `EXTERNAL_API_KEY` | Pre-shared key for service-to-service calls — different per environment | Yes |
+
+---
+
+## External API
+
+StayStacking exposes a service-to-service endpoint that lets other Lambda functions (or any backend service) create Strava activities on behalf of a StayStacking user — without needing a user JWT. This is useful for apps that already know a user's Strava ID and want to log activities directly into StayStacking.
+
+### Authentication
+
+Pass the `EXTERNAL_API_KEY` value (from the environment's Secrets Manager) as a request header:
+
+```
+X-Api-Key: <your-key>
+```
+
+The key is stored in Secrets Manager under `staystacking/external-api-key-{env}` and is set via `EXTERNAL_API_KEY` in the `.env.*` file. Generate a key with:
+
+```bash
+openssl rand -base64 32
+```
+
+### Endpoint
+
+```
+POST {api_gateway_url}/external/activities
+```
+
+Get `api_gateway_url` from:
+
+```bash
+cd terraform && terraform output -raw api_gateway_url
+```
+
+### Request
+
+All fields use **Strava-native units** (seconds, meters) — no UI conversions.
+
+```json
+{
+  "stravaId": 12345678,
+  "name": "Morning Run",
+  "sport_type": "Run",
+  "start_date_local": "2024-05-06T08:00:00",
+  "elapsed_time": 3600,
+  "distance": 10000,
+  "total_elevation_gain": 150,
+  "description": "Easy Z2 recovery",
+  "hide_from_home": false
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `stravaId` | number | Yes | Strava athlete ID — used to look up the StayStacking user |
+| `name` | string | Yes | Activity name |
+| `sport_type` | string | Yes | Strava sport type: `Run`, `Ride`, `Hike`, `Walk`, `Swim`, etc. |
+| `start_date_local` | string | Yes | ISO 8601 local time: `YYYY-MM-DDTHH:MM:SS` |
+| `elapsed_time` | number | Yes | Duration in seconds |
+| `distance` | number | No | Distance in meters |
+| `total_elevation_gain` | number | No | Elevation gain in meters |
+| `description` | string | No | Activity description |
+| `hide_from_home` | boolean | No | If `true`, activity is hidden from followers' feed on Strava |
+
+### Response
+
+```json
+{
+  "activityId": "13579246810",
+  "stravaActivityId": "13579246810"
+}
+```
+
+### Example (Node.js / AWS Lambda)
+
+```js
+const response = await fetch(`${process.env.STAYSTACKING_API_URL}/external/activities`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Api-Key': process.env.STAYSTACKING_EXTERNAL_API_KEY,
+  },
+  body: JSON.stringify({
+    stravaId: 12345678,
+    name: 'Morning Run',
+    sport_type: 'Run',
+    start_date_local: '2024-05-06T08:00:00',
+    elapsed_time: 3600,
+    distance: 10000,
+  }),
+});
+
+const { activityId } = await response.json();
+```
+
+Store `STAYSTACKING_API_URL` and `STAYSTACKING_EXTERNAL_API_KEY` in your calling Lambda's environment (or its own Secrets Manager). The API key value is in `staystacking/external-api-key-{env}` in this account's Secrets Manager.
+
+### Errors (all endpoints)
+
+| Status | Error | Meaning |
+|---|---|---|
+| `400` | `stravaId, name, ... are required` | Missing required field |
+| `401` | `Missing X-Api-Key header` | Header not sent |
+| `401` | `Invalid API key` | Key doesn't match |
+| `403` | `reauth_required` | The user's Strava token is expired — they need to reconnect in the StayStacking UI |
+| `404` | `No StayStacking user found for this stravaId` | User has not signed up for StayStacking |
+
+---
+
+### GET /external/activities — Current Week Summary
+
+Returns running and cycling totals for the current calendar week (Monday–Sunday).
+
+```
+GET {api_gateway_url}/external/activities?stravaId={stravaId}
+```
+
+**Headers:** `X-Api-Key: <key>` (same key as Create Activity)
+
+**Query parameters:**
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| `stravaId` | number | Yes | Strava athlete ID |
+
+**Response:**
+
+```json
+{
+  "weekStart": "2024-05-06",
+  "running": {
+    "timeSeconds": 7200,
+    "distanceMeters": 15000,
+    "elevationMeters": 300
+  },
+  "cycling": {
+    "timeSeconds": 3600,
+    "distanceMeters": 40000
+  }
+}
+```
+
+`weekStart` is always a Monday in `YYYY-MM-DD` format. All numeric values are integers; zeros are returned when there are no activities of that type.
+
+**Example (Node.js):**
+
+```js
+const url = `${process.env.STAYSTACKING_API_URL}/external/activities?stravaId=${stravaId}`;
+const response = await fetch(url, {
+  headers: { 'X-Api-Key': process.env.STAYSTACKING_EXTERNAL_API_KEY },
+});
+const { weekStart, running, cycling } = await response.json();
+
+// Convert for display
+const runMiles = (running.distanceMeters / 1609.344).toFixed(1);
+const runElevFt = Math.round(running.elevationMeters * 3.28084);
+const cycMiles  = (cycling.distanceMeters / 1609.344).toFixed(1);
+```

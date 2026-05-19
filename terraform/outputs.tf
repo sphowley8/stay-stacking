@@ -32,3 +32,8 @@ output "strava_secret_arn" {
   description = "ARN of the Strava credentials secret in Secrets Manager (used by deploy.sh)"
   value       = module.api.strava_secret_arn
 }
+
+output "external_api_key_secret_arn" {
+  description = "ARN of the external API key secret in Secrets Manager (used by deploy.sh)"
+  value       = module.api.external_api_key_secret_arn
+}

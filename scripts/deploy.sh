@@ -34,7 +34,7 @@ echo "=========================================="
 
 # --- Validate required variables ---
 MISSING=0
-for VAR in JWT_SECRET STRAVA_CLIENT_ID STRAVA_CLIENT_SECRET FRONTEND_URL ACM_CERTIFICATE_ARN AWS_PROFILE; do
+for VAR in JWT_SECRET STRAVA_CLIENT_ID STRAVA_CLIENT_SECRET EXTERNAL_API_KEY FRONTEND_URL ACM_CERTIFICATE_ARN AWS_PROFILE; do
   if [[ -z "${!VAR:-}" ]]; then echo "ERROR: $VAR is not set"; MISSING=1; fi
 done
 [[ $MISSING -eq 1 ]] && echo "Set missing variables in $ENV_FILE and retry." && exit 1
@@ -45,6 +45,7 @@ BACKEND_CONFIG=(
   -backend-config="region=us-east-1"
   -backend-config="dynamodb_table=staystacking-terraform-locks-$ENVIRONMENT"
   -backend-config="encrypt=true"
+  -backend-config="profile=$AWS_PROFILE"
 )
 
 TF_VARS=(
@@ -122,6 +123,7 @@ API_URL=$(terraform output -raw api_gateway_url)
 APP_URL=$(terraform output -raw app_url)
 JWT_SECRET_ARN=$(terraform output -raw jwt_secret_arn)
 STRAVA_SECRET_ARN=$(terraform output -raw strava_secret_arn)
+EXTERNAL_API_KEY_ARN=$(terraform output -raw external_api_key_secret_arn)
 
 # --- Step 4b: Force-update all Lambda code in parallel ---
 echo ""
@@ -148,6 +150,10 @@ STRAVA_JSON="{\"client_id\":\"$STRAVA_CLIENT_ID\",\"client_secret\":\"$STRAVA_CL
   --output text --query 'Name' | xargs -I{} echo "  Updated: {}") &
 (aws secretsmanager put-secret-value \
   --secret-id "$STRAVA_SECRET_ARN" --secret-string "$STRAVA_JSON" \
+  --region us-east-1 --profile "$AWS_PROFILE" \
+  --output text --query 'Name' | xargs -I{} echo "  Updated: {}") &
+(aws secretsmanager put-secret-value \
+  --secret-id "$EXTERNAL_API_KEY_ARN" --secret-string "$EXTERNAL_API_KEY" \
   --region us-east-1 --profile "$AWS_PROFILE" \
   --output text --query 'Name' | xargs -I{} echo "  Updated: {}") &
 wait

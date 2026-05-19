@@ -79,6 +79,17 @@ resource "aws_secretsmanager_secret" "strava" {
   }
 }
 
+resource "aws_secretsmanager_secret" "external_api_key" {
+  name                    = "staystacking/external-api-key-${var.environment}"
+  description             = "API key for external service-to-service calls into StayStacking"
+  recovery_window_in_days = 0
+
+  tags = {
+    Project     = "staystacking"
+    Environment = var.environment
+  }
+}
+
 resource "aws_iam_role_policy" "secrets_access" {
   name = "staystacking-secrets-${var.environment}"
   role = aws_iam_role.lambda_exec.id
@@ -91,6 +102,7 @@ resource "aws_iam_role_policy" "secrets_access" {
       Resource = [
         aws_secretsmanager_secret.jwt.arn,
         aws_secretsmanager_secret.strava.arn,
+        aws_secretsmanager_secret.external_api_key.arn,
       ]
     }]
   })
@@ -258,7 +270,11 @@ resource "aws_lambda_function" "activities" {
   timeout       = 30
   s3_bucket     = var.deploy_bucket_name
   s3_key        = "activities.zip"
-  environment { variables = local.common_env }
+  environment {
+    variables = merge(local.common_env, {
+      SECRET_EXTERNAL_API_KEY_ARN = aws_secretsmanager_secret.external_api_key.arn
+    })
+  }
   depends_on    = [aws_cloudwatch_log_group.activities]
 }
 
@@ -484,6 +500,16 @@ resource "aws_api_gateway_resource" "activities_manual_id" {
   path_part   = "{activityId}"
 }
 
+module "activities_manual_put" {
+  source         = "./route"
+  rest_api_id    = aws_api_gateway_rest_api.main.id
+  resource_id    = aws_api_gateway_resource.activities_manual_id.id
+  http_method    = "PUT"
+  lambda_arn     = aws_lambda_function.activities.invoke_arn
+  frontend_url   = var.frontend_url
+  create_options = false
+}
+
 module "activities_manual_delete" {
   source         = "./route"
   rest_api_id    = aws_api_gateway_rest_api.main.id
@@ -492,6 +518,42 @@ module "activities_manual_delete" {
   lambda_arn     = aws_lambda_function.activities.invoke_arn
   frontend_url   = var.frontend_url
   create_options = true
+}
+
+# -------------------------------------------------------
+# /external resource — service-to-service API
+# -------------------------------------------------------
+
+resource "aws_api_gateway_resource" "external" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_rest_api.main.root_resource_id
+  path_part   = "external"
+}
+
+resource "aws_api_gateway_resource" "external_activities" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.external.id
+  path_part   = "activities"
+}
+
+module "external_activities_get" {
+  source         = "./route"
+  rest_api_id    = aws_api_gateway_rest_api.main.id
+  resource_id    = aws_api_gateway_resource.external_activities.id
+  http_method    = "GET"
+  lambda_arn     = aws_lambda_function.activities.invoke_arn
+  frontend_url   = var.frontend_url
+  create_options = false
+}
+
+module "external_activities_post" {
+  source         = "./route"
+  rest_api_id    = aws_api_gateway_rest_api.main.id
+  resource_id    = aws_api_gateway_resource.external_activities.id
+  http_method    = "POST"
+  lambda_arn     = aws_lambda_function.activities.invoke_arn
+  frontend_url   = var.frontend_url
+  create_options = false
 }
 
 # -------------------------------------------------------
@@ -627,7 +689,10 @@ resource "aws_api_gateway_deployment" "main" {
       module.activities_sync_post,
       module.activities_manual_post,
       module.activities_manual_get,
+      module.activities_manual_put,
       module.activities_manual_delete,
+      module.external_activities_get,
+      module.external_activities_post,
       module.training_plan_get,
       module.training_plan_date_post,
       module.training_plan_date_delete,

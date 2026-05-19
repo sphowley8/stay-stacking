@@ -272,6 +272,35 @@ async function createActivity(accessToken, payload) {
 }
 
 /**
+ * Updates an existing activity on Strava.
+ * @param {string} accessToken
+ * @param {string|number} stravaActivityId
+ * @param {object} payload - updatable fields: name, sport_type, elapsed_time, distance, total_elevation_gain, description, hide_from_home
+ * @returns {object} updated activity response
+ */
+async function updateActivity(accessToken, stravaActivityId, payload) {
+  const putData = JSON.stringify(payload);
+  const result = await httpsRequest({
+    hostname: 'www.strava.com',
+    path: `/api/v3/activities/${stravaActivityId}`,
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(putData),
+    },
+  }, putData);
+
+  if (result.statusCode === 401 || result.statusCode === 403) {
+    throw new Error('reauth_required');
+  }
+  if (result.statusCode !== 200) {
+    throw new Error(`Strava update activity failed: ${result.statusCode}`);
+  }
+  return result.body;
+}
+
+/**
  * Deletes an activity from Strava by its ID.
  * @param {string} accessToken
  * @param {string|number} stravaActivityId
@@ -294,4 +323,4 @@ async function deleteActivity(accessToken, stravaActivityId) {
   return true;
 }
 
-module.exports = { exchangeCode, getValidToken, fetchActivitiesSince, buildAuthUrl, fetchAthleteZones, fetchActivityStreams, fetchAthleteFTP, createActivity, deleteActivity };
+module.exports = { exchangeCode, getValidToken, fetchActivitiesSince, buildAuthUrl, fetchAthleteZones, fetchActivityStreams, fetchAthleteFTP, createActivity, updateActivity, deleteActivity };

@@ -32,6 +32,7 @@ const state = {
   liIndex: null,
   actDistanceUnit: 'mi',
   actElevationUnit: 'ft',
+  editingActivity: null,
 };
 
 // ============================================================
@@ -1542,13 +1543,21 @@ function renderManualActivityRegistry(activities) {
         <span class="registry-name">${escapeHtml(act.name || act.activityType)}</span>
         <span class="registry-meta">${metaParts.join(' · ')}</span>
       </div>
-      <button class="btn btn-small btn-danger" data-activity-id="${act.activityId}">Delete</button>
+      <div class="registry-actions">
+        <button class="btn btn-small btn-edit" data-edit-id="${act.activityId}">Edit</button>
+        <button class="btn btn-small btn-danger" data-activity-id="${act.activityId}">Delete</button>
+      </div>
     `;
     registry.appendChild(row);
   }
 
   registry.querySelectorAll('[data-activity-id]').forEach(btn => {
     btn.addEventListener('click', () => deleteManualActivity(btn.dataset.activityId));
+  });
+
+  const actMap = Object.fromEntries(activities.map(a => [a.activityId, a]));
+  registry.querySelectorAll('[data-edit-id]').forEach(btn => {
+    btn.addEventListener('click', () => openEditActivityModal(actMap[btn.dataset.editId]));
   });
 }
 
@@ -1585,6 +1594,10 @@ async function deleteManualActivity(activityId) {
 // ============================================================
 
 function openAddActivityModal() {
+  state.editingActivity = null;
+  document.getElementById('add-activity-modal-title').textContent = 'Log Activity';
+  document.getElementById('btn-submit-activity').textContent = 'Save to Strava';
+  document.getElementById('act-datetime-group').classList.remove('hidden');
   const today = getTodayStr();
   document.getElementById('act-date').value = today;
   document.getElementById('act-time').value = '08:00';
@@ -1599,6 +1612,7 @@ function openAddActivityModal() {
   document.getElementById('act-avg-pace').value = '';
   document.getElementById('act-avg-power').value = '';
   document.getElementById('act-description').value = '';
+  document.getElementById('act-mute').checked = false;
   document.getElementById('add-activity-reauth-msg').classList.add('hidden');
   document.getElementById('add-activity-form-wrap').classList.remove('hidden');
   document.querySelector('.add-activity-modal-card').scrollTop = 0;
@@ -1606,8 +1620,46 @@ function openAddActivityModal() {
   document.getElementById('add-activity-modal').classList.remove('hidden');
 }
 
+function openEditActivityModal(act) {
+  state.editingActivity = act;
+  document.getElementById('add-activity-modal-title').textContent = 'Edit Activity';
+  document.getElementById('btn-submit-activity').textContent = 'Update on Strava';
+  document.getElementById('act-datetime-group').classList.add('hidden');
+  document.getElementById('act-name').value = act.name || '';
+  document.getElementById('act-type').value = act.activityType || 'Run';
+  const h = Math.floor((act.elapsedTime || 0) / 3600);
+  const m = Math.floor(((act.elapsedTime || 0) % 3600) / 60);
+  const s = (act.elapsedTime || 0) % 60;
+  document.getElementById('act-dur-h').value = h || '';
+  document.getElementById('act-dur-m').value = m || '';
+  document.getElementById('act-dur-s').value = s || '';
+  const distMi = act.distance ? (act.distance / 1609.344).toFixed(2) : '';
+  document.getElementById('act-distance').value = distMi;
+  state.actDistanceUnit = 'mi';
+  document.querySelectorAll('#act-distance-unit-toggle .unit-toggle-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.unit === 'mi');
+  });
+  const elevFt = act.elevation ? Math.round(act.elevation * 3.28084) : '';
+  document.getElementById('act-elevation').value = elevFt;
+  state.actElevationUnit = 'ft';
+  document.querySelectorAll('#act-elevation-unit-toggle .unit-toggle-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.unit === 'ft');
+  });
+  document.getElementById('act-avg-hr').value = '';
+  document.getElementById('act-avg-pace').value = '';
+  document.getElementById('act-avg-power').value = '';
+  document.getElementById('act-description').value = act.description || '';
+  document.getElementById('act-mute').checked = act.hideFromHome || false;
+  document.getElementById('add-activity-reauth-msg').classList.add('hidden');
+  document.getElementById('add-activity-form-wrap').classList.remove('hidden');
+  document.querySelector('.add-activity-modal-card').scrollTop = 0;
+  updateActivityTypeFields(act.activityType || 'Run');
+  document.getElementById('add-activity-modal').classList.remove('hidden');
+}
+
 function closeAddActivityModal() {
   document.getElementById('add-activity-modal').classList.add('hidden');
+  state.editingActivity = null;
 }
 
 function updateActivityTypeFields(type) {
@@ -1620,6 +1672,7 @@ function updateActivityTypeFields(type) {
 }
 
 async function submitAddActivity() {
+  if (state.editingActivity) { await submitEditActivity(); return; }
   const name = document.getElementById('act-name').value.trim();
   const sport_type = document.getElementById('act-type').value;
   const date = document.getElementById('act-date').value;
@@ -1649,6 +1702,7 @@ async function submitAddActivity() {
     avgPace: document.getElementById('act-avg-pace').value.trim() || null,
     avgPower: parseInt(document.getElementById('act-avg-power').value || '0', 10) || null,
     description: document.getElementById('act-description').value.trim() || null,
+    hideFromHome: document.getElementById('act-mute').checked,
   };
 
   const btn = document.getElementById('btn-submit-activity');
@@ -1676,6 +1730,62 @@ async function submitAddActivity() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'Save to Strava';
+  }
+}
+
+async function submitEditActivity() {
+  const act = state.editingActivity;
+  const name = document.getElementById('act-name').value.trim();
+  const sport_type = document.getElementById('act-type').value;
+  const hours = parseInt(document.getElementById('act-dur-h').value || '0', 10);
+  const minutes = parseInt(document.getElementById('act-dur-m').value || '0', 10);
+  const seconds = parseInt(document.getElementById('act-dur-s').value || '0', 10);
+
+  if (!name) { showToast('Activity name is required', 'error'); return; }
+  if (hours === 0 && minutes === 0 && seconds === 0) { showToast('Duration is required', 'error'); return; }
+
+  const body = {
+    name,
+    sport_type,
+    hours,
+    minutes,
+    seconds,
+    distanceValue: document.getElementById('act-distance').value || '',
+    distanceUnit: state.actDistanceUnit,
+    elevationValue: document.getElementById('act-elevation').value || '',
+    elevationUnit: state.actElevationUnit,
+    avgHr: parseInt(document.getElementById('act-avg-hr').value || '0', 10) || null,
+    avgPace: document.getElementById('act-avg-pace').value.trim() || null,
+    avgPower: parseInt(document.getElementById('act-avg-power').value || '0', 10) || null,
+    description: document.getElementById('act-description').value.trim() || null,
+    hideFromHome: document.getElementById('act-mute').checked,
+  };
+
+  const btn = document.getElementById('btn-submit-activity');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  try {
+    const result = await apiFetch(`/activities/manual/${act.activityId}`, { method: 'PUT', body: JSON.stringify(body) });
+    closeAddActivityModal();
+    showToast('Activity updated on Strava!', 'success');
+    if (result.weeks) {
+      state.activities = result.weeks;
+      if (state.activeTab === 'load') renderLoadChart();
+    }
+    await loadPlanTab();
+  } catch (err) {
+    if (err.message === 'reauth_required') {
+      document.getElementById('add-activity-form-wrap').classList.add('hidden');
+      document.getElementById('add-activity-reauth-msg').classList.remove('hidden');
+      document.querySelector('.add-activity-modal-card').scrollTop = 0;
+      showToast('Strava write access required — sign out and reconnect', 'error');
+    } else if (err.message !== 'unauthorized') {
+      showToast('Failed to update: ' + err.message, 'error');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Update on Strava';
   }
 }
 
