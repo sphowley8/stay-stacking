@@ -85,7 +85,7 @@ package_lambda() {
   mkdir -p "$STAGE/shared"
   cp "$SHARED_DIR/"*.js "$STAGE/shared/"
   cd "$STAGE"
-  npm install --production --silent
+  npm install --production --silent --cache "$TMP_DIR/.npm-cache-$lambda"
   zip -r "$TMP_DIR/${lambda}.zip" . --quiet
   echo "  Packaged $lambda ($(du -sh "$TMP_DIR/${lambda}.zip" | cut -f1))"
 }

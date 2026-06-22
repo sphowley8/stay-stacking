@@ -236,7 +236,10 @@ async function syncUserActivities(userId, user) {
           RequestItems: {
             [process.env.ACTIVITIES_TABLE]: {
               Keys: batch.map(a => ({ userId, activityId: String(a.id) })),
-              ProjectionExpression: 'activityId, activityType, hrZones, paceZones, paceZoneThresholds, powerZones, gradeZones',
+              // #name is a DynamoDB reserved word; isManual/stravaActivityId/etc.
+              // are carried through so a sync doesn't clobber manual-activity metadata.
+              ProjectionExpression: 'activityId, activityType, hrZones, paceZones, paceZoneThresholds, powerZones, gradeZones, isManual, stravaActivityId, #name, description, hideFromHome',
+              ExpressionAttributeNames: { '#name': 'name' },
             },
           },
         }));
@@ -270,7 +273,11 @@ async function syncUserActivities(userId, user) {
         let activityPowerZones = null;
         let activityGradeZones = null;
 
-        if (isFullyProcessed(existingZoneData[activityIdStr], rawType, effectivePaceThresholds)) {
+        // Manual activities have no Strava streams; their zones were inferred
+        // from averages at creation, so always reuse what's stored rather than
+        // re-fetching (which would overwrite them with zeros).
+        if (isFullyProcessed(existingZoneData[activityIdStr], rawType, effectivePaceThresholds) ||
+            existingZoneData[activityIdStr]?.isManual) {
           // Reuse all stored zone data
           const stored = existingZoneData[activityIdStr];
           activityHrZones = stored.hrZones;
@@ -330,6 +337,18 @@ async function syncUserActivities(userId, user) {
         }
         if (activityPowerZones !== null) item.powerZones = activityPowerZones; // cycling only
         if (activityGradeZones !== null) item.gradeZones = activityGradeZones; // runs only
+
+        // Preserve manual-activity metadata so re-syncing a manually logged
+        // activity (which also lives on Strava) doesn't drop it from the
+        // registry or break deletion.
+        const prior = existingZoneData[activityIdStr];
+        if (prior && prior.isManual) {
+          item.isManual = true;
+          item.stravaActivityId = prior.stravaActivityId || activityIdStr;
+          if (prior.name) item.name = prior.name;
+          if (prior.description) item.description = prior.description;
+          if (prior.hideFromHome) item.hideFromHome = prior.hideFromHome;
+        }
 
         await dynamo.send(new PutCommand({
           TableName: process.env.ACTIVITIES_TABLE,

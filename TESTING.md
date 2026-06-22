@@ -39,6 +39,8 @@
 - [ ] GET `/costs?env=staging` from prod Lambda: successfully assumes cross-account role and returns staging data
 - [ ] GET `/training-plan` returns only entries within the requested date range
 - [ ] DELETE `/training-plan/{date}` removes the item; subsequent GET returns no entry for that date
+- [ ] Manual activity survives sync: POST `/activities/manual`, then POST `/activities/sync` → activity still appears in GET `/activities/manual` (retains `isManual`, `name`, `stravaActivityId`) and its inferred zones are not zeroed
+- [ ] DELETE `/activities/manual/{activityId}` after a sync removes the activity from both Strava and DynamoDB
 - [ ] JWT authorization: all protected endpoints return 401 with missing/invalid/expired token
 
 ### Performance Tests
