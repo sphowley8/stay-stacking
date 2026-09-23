@@ -10,7 +10,7 @@ StayStacking is a serverless web application for endurance athletes that tracks 
 
 Endurance athletes often track volume (mileage, vert, time) but not **load density** — the compounding stress across cardiovascular, muscular, and tendon systems. StayStacking answers one question: *Is my body adapting or becoming more reactive?*
 
-The app connects to Strava to pull activity data and computes ATL (fatigue), CTL (fitness), TSB (form), and ACWR (injury risk) across three load categories: Aerobic, Muscular, and Structural. Manual daily Injury Check-Ins (stiffness, pain, recovery tools) overlay the training data for a holistic view.
+The app connects to Strava to pull activity data and computes ATL (fatigue), CTL (fitness), TSB (form), and ACWR (injury risk) across three load categories: Aerobic, Muscular, and Structural. A **Per-Run Analysis** view lets athletes drill into any run from the last 14 days with a heart-rate-over-time chart and a mile-by-mile breakdown (pace, average HR, elevation gain/loss).
 
 ---
 
@@ -33,8 +33,8 @@ stay-stacking/
 │       │   └── weekStart.js  Pure fn: date → Monday of that week (UTC-safe)
 │       ├── auth/           GET /auth/strava + GET /auth/callback
 │       ├── user/           GET/POST /user (profile + injury toggle)
-│       ├── checkin/        GET/POST /checkin (daily morning/evening log)
-│       ├── activities/     GET /activities + POST /activities/sync
+│       ├── checkin/        GET/POST /checkin (legacy; no longer surfaced in UI)
+│       ├── activities/     GET /activities + /runs + /detail; POST /activities/sync + /manual
 │       ├── costs/          GET /costs (AWS cost explorer + user list, admin only)
 │       └── training-plan/  GET/POST/DELETE /training-plan/{date}
 │

@@ -28,9 +28,10 @@ Deployed and live at **https://stay-stacking.sean-howley.com**. Custom domain vi
 6. **Cycling HR bias** — +13 BPM added to all HR samples during cycling activities before zone assignment, to normalize cycling vs running HR zones. Samples ≤ 80 BPM excluded entirely.
 7. **CORS** — Lambda responses include `Access-Control-Allow-Origin: {FRONTEND_URL}`. API Gateway has OPTIONS mock integrations via the `route` submodule.
 8. **Cross-account costs** — costs Lambda uses STS AssumeRole to query Cost Explorer and DynamoDB in the peer account (prod↔staging). Each account has a `staystacking-costs-cross-account-{env}` IAM role.
+9. **Per-Run streams on-demand** — Per-Run Analysis does not store raw streams. `/activities/detail` fetches time/HR/distance/altitude streams from Strava when a run is selected and computes mile splits server-side (`computeRunDetail`). Sync stores the activity `name` (all activities) so the dropdown can label runs; existing activities get names on next re-sync.
 
 ## Active Tabs
-- **Injury Check-In** — daily morning/evening check-in for stiffness, pain, recovery tools
+- **Per-Run Analysis** — pick a run from the last 14 days; HR chart (x-axis toggles Time↔Miles, dotted zone-limit lines), HR-zone breakdown (athlete zone ranges + % time per zone, from the stored per-activity `hrZones`), and splits (toggle Mile↔Lap; lap mode adds each lap's distance). Fetches Strava streams + laps on-demand per selected run; the detail response carries both mile splits and lap splits so the toggle needs no refetch. (Replaced the old Injury Check-In tab; the `/checkin` Lambda + routes still exist but are no longer surfaced in the UI.)
 - **Progressive Load** — 8-week chart + Training Load Index (ATL/CTL/TSB/ACWR per category)
 - **Activity Log** — manually log activities to Strava; registry with delete; feeds load charts
 
@@ -87,6 +88,8 @@ POST /activities/sync        Protected — fetch from Strava + store
 POST /activities/manual      Protected — create manual activity (posts to Strava, stores in DDB)
 GET  /activities/manual      Protected — list manually logged activities (isManual=true)
 DELETE /activities/manual/{activityId}  Protected — delete from Strava + DDB
+GET  /activities/runs?days=N Protected — individual runs (default 14d) for Per-Run Analysis (excludes manual)
+GET  /activities/detail?activityId=X  Protected — on-demand HR series + per-mile splits (fetches Strava streams)
 GET  /costs?env=prod|staging Protected — AWS costs + user list (admin only)
 GET  /training-plan          Protected — 6-week window (backend only; UI replaced by Activity Log)
 POST /training-plan/{date}   Protected

@@ -9,5 +9,5 @@
 - [X] Add a coming soon to the injury and calendar tabs
 - [X] Do one thing and do it well — load progress should have a garmin-type load ratio for 3 categories
 - [ ] Differentiate between cycling HR zones and running HR zones
-- [ ] Un-gray out the daily checkin and training plan tabs in staging only
+- [X] Un-gray the daily check-in tab — repurposed as **Per-Run Analysis** (HR chart + mile splits) for all envs
 - [ ] Create basic testing structure

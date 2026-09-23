@@ -14,6 +14,9 @@
 - [ ] `activities/index.js` — POST /sync: verify TTL set to 56 days from current time
 - [ ] `activities/index.js` — cycling HR bias: verify +13 BPM applied to cycling activities before zone assignment
 - [ ] `activities/index.js` — HR exclusion: verify samples ≤ 80 BPM are excluded from zone calculations
+- [ ] `activities/index.js` — `computeRunDetail()` mile splits: a distance stream crossing N mile boundaries yields N full splits + a trailing partial (>30 m); each split's `timeSec`, `avgHr`, `elevGainMeters`/`elevLossMeters` are attributed to the correct mile
+- [ ] `activities/index.js` — `computeRunDetail()` HR series: downsampled to ≤ ~400 points; null HR samples skipped; `hasHeartrate` false when no HR stream
+- [ ] `activities/index.js` — `computeRunDetail()` with no distance stream (treadmill): returns `splits: []` but still returns HR series
 - [ ] `training-plan/index.js` — date validation regex rejects invalid formats
 
 #### Frontend — app.js
@@ -24,6 +27,12 @@
 - [ ] `computeRecoveryScore()`: 3-day upward trend → yellow; 5-day upward trend → red; flat/declining → green; <2 data points → unknown
 - [ ] `getMondayStr()`: all 7 days of week return same Monday
 - [ ] `formatDuration()`: 3600s → "1h 0m"; 90s → "1m"; 0s → "0m"
+- [ ] `formatPace()`: 450 s/mi → "7:30"; rounds seconds and rolls 60 → next minute; returns "—" for 0/Infinity
+- [ ] Per-Run Analysis: selecting a run in the dropdown calls `/activities/detail` and renders the HR chart + splits; empty-state messages show when no runs / no HR / no distance data
+- [ ] `renderRunZones()`: percentages sum to ~100%; each zone shows the athlete's bpm range (last zone renders as `min+`); empty state when `zoneTimes` total is 0
+- [ ] Per-Run HR chart x-axis toggle: Time plots elapsed minutes, Miles plots cumulative distance; Miles button is disabled when the run has no distance stream
+- [ ] `computeLapSplits()`: one row per Strava lap with distance, time, avg HR (from lap or averaged from stream slice), and elevation gain/loss from the altitude stream between start_index/end_index
+- [ ] Splits toggle: Mile shows fixed-mile rows (no distance column); Lap shows per-lap rows with a distance column; toggling does not refetch `/activities/detail`
 - [ ] JWT cleared from localStorage on 401 response
 - [ ] `costsCacheKey(env)`: returns `costs_cache_v3_prod` / `costs_cache_v3_staging` per env
 
@@ -40,6 +49,9 @@
 - [ ] GET `/training-plan` returns only entries within the requested date range
 - [ ] DELETE `/training-plan/{date}` removes the item; subsequent GET returns no entry for that date
 - [ ] Manual activity survives sync: POST `/activities/manual`, then POST `/activities/sync` → activity still appears in GET `/activities/manual` (retains `isManual`, `name`, `stravaActivityId`) and its inferred zones are not zeroed
+- [ ] GET `/activities/runs?days=14` returns only Run activities within the window, excludes manual runs, and is sorted newest-first
+- [ ] GET `/activities/detail?activityId=X` for another user's activity returns 404 (record keyed by JWT userId)
+- [ ] GET `/activities/detail` fetches Strava streams and returns HR series + mile splits; returns empty detail (not 500) when the activity has no streams
 - [ ] DELETE `/activities/manual/{activityId}` after a sync removes the activity from both Strava and DynamoDB
 - [ ] JWT authorization: all protected endpoints return 401 with missing/invalid/expired token
 

@@ -31,7 +31,7 @@
     <header class="app-header">
       <span class="brand-small">StayStacking</span>
       <nav class="tab-bar">
-        <button class="tab-btn" data-tab="checkin" disabled>Injury Check-In<span class="coming-soon-tag">Coming Soon</span></button>
+        <button class="tab-btn" data-tab="run">Per-Run Analysis</button>
         <button class="tab-btn active" data-tab="load">Progressive Load</button>
         <button class="tab-btn" data-tab="plan">Activity Log</button>
       </nav>
@@ -39,170 +39,78 @@
       <button id="btn-sign-out" class="btn btn-sign-out" title="Sign out and reauthorize Strava">Sign out</button>
     </header>
 
-    <!-- ===================== TAB: DAILY CHECK-IN ===================== -->
-    <div id="tab-checkin" class="tab-panel hidden">
+    <!-- ===================== TAB: PER-RUN ANALYSIS ===================== -->
+    <div id="tab-run" class="tab-panel hidden">
       <div class="panel-content">
 
-        <!-- Injury Management -->
-        <section class="card">
-          <h2 class="card-title">My Injuries</h2>
-          <p class="injury-naming-hint">Label each injury by the specific tendon, muscle, or bone affected — e.g. "Left Achilles Tendon" or "Right Peroneal Tendon" rather than "Lower Leg".</p>
-          <div id="injury-list" class="injury-list">
-            <p class="muted">No injuries added yet.</p>
-          </div>
-          <div class="injury-create-form">
-            <input type="text" id="injury-name-input" class="injury-name-input" placeholder="e.g. Left Achilles Tendinopathy" maxlength="80" />
-            <button id="btn-create-injury" class="btn btn-primary">Add Injury</button>
-          </div>
-        </section>
-
-        <!-- Recovery Score Banner -->
-        <div id="recovery-banner" class="recovery-banner recovery-unknown">
-          <span id="recovery-icon">—</span>
-          <span id="recovery-label">Loading...</span>
+        <!-- Run selector -->
+        <div class="run-select-row" id="run-select-row">
+          <label class="run-select-label" for="run-select">Run:</label>
+          <select id="run-select" class="select run-select">
+            <option value="">— Select a run —</option>
+          </select>
         </div>
 
-        <!-- Morning Check-In -->
-        <section class="card" id="morning-card">
-          <div class="card-title-row">
-            <h2 class="card-title">Morning Check-In</h2>
-            <div class="card-title-actions">
-              <button class="btn-edit-checkin hidden" id="btn-edit-morning" title="Edit morning check-in">&#8592; Edit</button>
-              <button class="info-btn btn-pain-scale-trigger" title="Pain scale guide">?</button>
-            </div>
-          </div>
-          <div class="checkin-summary hidden" id="morning-summary"></div>
-          <div class="checkin-form-body" id="morning-form-body">
-            <div class="form-group">
-              <label>Injury</label>
-              <select id="morning-injury-select" class="select">
-                <option value="">— Select injury —</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Injured Area Tightness <span id="val-injured-tightness" class="slider-val">0</span>/10</label>
-              <input type="range" id="morning-tightness" class="slider" min="0" max="10" value="0" />
-            </div>
-            <div class="form-group">
-              <label>Injured Area Pain <span id="val-injured-pain" class="slider-val">0</span>/10</label>
-              <input type="range" id="morning-pain" class="slider" min="0" max="10" value="0" />
-            </div>
-            <div class="form-group">
-              <label>Surrounding Area Tightness <span id="val-surrounding-tightness" class="slider-val">0</span>/10</label>
-              <input type="range" id="surrounding-tightness" class="slider" min="0" max="10" value="0" />
-            </div>
-            <div class="form-group">
-              <label>Surrounding Area Pain <span id="val-surrounding-pain" class="slider-val">0</span>/10</label>
-              <input type="range" id="surrounding-pain" class="slider" min="0" max="10" value="0" />
-            </div>
-            <button id="btn-save-morning" class="btn btn-primary btn-full">Save Morning Check-In</button>
-          </div>
-        </section>
+        <p id="run-empty" class="muted center hidden">No runs in the last 14 days. Sync your Strava activities to get started.</p>
+        <p id="run-loading" class="muted center hidden">Loading run…</p>
 
-        <!-- During Activity Check-In -->
-        <section class="card" id="during-card">
-          <div class="card-title-row">
-            <h2 class="card-title">During Activity Check-In</h2>
-            <div class="card-title-actions">
-              <button class="btn-edit-checkin hidden" id="btn-edit-during" title="Edit during activity check-in">&#8592; Edit</button>
-              <button class="info-btn btn-pain-scale-trigger" title="Pain scale guide">?</button>
+        <!-- Run detail -->
+        <div id="run-detail" class="hidden">
+          <!-- Summary stat cards -->
+          <div class="run-summary">
+            <div class="summary-card">
+              <span class="summary-label">Distance</span>
+              <span id="run-stat-distance" class="summary-value">—</span>
+            </div>
+            <div class="summary-card">
+              <span class="summary-label">Time</span>
+              <span id="run-stat-time" class="summary-value">—</span>
+            </div>
+            <div class="summary-card">
+              <span class="summary-label">Avg Pace</span>
+              <span id="run-stat-pace" class="summary-value">—</span>
+            </div>
+            <div class="summary-card">
+              <span class="summary-label">Elevation Gain</span>
+              <span id="run-stat-elev" class="summary-value">—</span>
             </div>
           </div>
-          <div class="checkin-summary hidden" id="during-summary"></div>
-          <div class="checkin-form-body" id="during-form-body">
-            <div class="form-group">
-              <label>Injury</label>
-              <select id="during-injury-select" class="select">
-                <option value="">— Select injury —</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Injured Area Tightness <span id="val-during-injured-tightness" class="slider-val">0</span>/10</label>
-              <input type="range" id="during-tightness" class="slider" min="0" max="10" value="0" />
-            </div>
-            <div class="form-group">
-              <label>Injured Area Pain <span id="val-during-injured-pain" class="slider-val">0</span>/10</label>
-              <input type="range" id="during-pain" class="slider" min="0" max="10" value="0" />
-            </div>
-            <div class="form-group">
-              <label>Surrounding Area Tightness <span id="val-during-surrounding-tightness" class="slider-val">0</span>/10</label>
-              <input type="range" id="during-surrounding-tightness" class="slider" min="0" max="10" value="0" />
-            </div>
-            <div class="form-group">
-              <label>Surrounding Area Pain <span id="val-during-surrounding-pain" class="slider-val">0</span>/10</label>
-              <input type="range" id="during-surrounding-pain" class="slider" min="0" max="10" value="0" />
-            </div>
-            <button id="btn-save-during" class="btn btn-primary btn-full">Save During Activity Check-In</button>
-          </div>
-        </section>
 
-        <!-- Evening Check-In -->
-        <section class="card" id="evening-card">
-          <div class="card-title-row">
-            <h2 class="card-title">Evening Check-In</h2>
-            <div class="card-title-actions">
-              <button class="btn-edit-checkin hidden" id="btn-edit-evening" title="Edit evening check-in">&#8592; Edit</button>
-              <button class="info-btn btn-pain-scale-trigger" title="Pain scale guide">?</button>
-            </div>
-          </div>
-          <div class="checkin-summary hidden" id="evening-summary"></div>
-          <div class="checkin-form-body" id="evening-form-body">
-            <div class="form-group">
-              <label>Injury</label>
-              <select id="evening-injury-select" class="select">
-                <option value="">— Select injury —</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Injured Area Pain <span id="val-evening-injured-pain" class="slider-val">0</span>/10</label>
-              <input type="range" id="evening-injured-pain" class="slider" min="0" max="10" value="0" />
-            </div>
-            <div class="form-group">
-              <label>Surrounding Area Pain <span id="val-evening-surrounding-pain" class="slider-val">0</span>/10</label>
-              <input type="range" id="evening-surrounding-pain" class="slider" min="0" max="10" value="0" />
-            </div>
-            <div class="form-group">
-              <label>Fatigue <span id="val-fatigue" class="slider-val">0</span>/10</label>
-              <input type="range" id="evening-fatigue" class="slider" min="0" max="10" value="0" />
-            </div>
-            <div class="form-group">
-              <label>Recovery Modalities Used</label>
-              <div class="checkbox-grid">
-                <label class="check-item"><input type="checkbox" value="Heat" /> Heat</label>
-                <label class="check-item"><input type="checkbox" value="Ice" /> Ice</label>
-                <label class="check-item"><input type="checkbox" value="Contrast" /> Contrast Bath</label>
-                <label class="check-item"><input type="checkbox" value="Massage" /> Massage (Foam Roll / Percussion Gun / Etc)</label>
-                <label class="check-item"><input type="checkbox" value="Graston" /> Graston Scraping</label>
-                <label class="check-item"><input type="checkbox" value="Shockwave" /> Shockwave Therapy</label>
-                <label class="check-item"><input type="checkbox" value="Isometric" /> Isometric Exercises / Stretching</label>
+          <!-- Heart-rate chart -->
+          <section class="card">
+            <div class="run-card-head">
+              <h2 class="card-title">Heart Rate</h2>
+              <div class="run-toggle" id="run-xaxis-toggle">
+                <button class="run-toggle-btn active" data-xaxis="time">Time</button>
+                <button class="run-toggle-btn" data-xaxis="distance">Miles</button>
               </div>
             </div>
-            <div class="form-group">
-              <label>Lifestyle Factors</label>
-              <div class="checkbox-grid">
-                <label class="check-item"><input type="checkbox" value="Healthy Diet" /> Well-Balanced Healthy Diet</label>
-                <label class="check-item"><input type="checkbox" value="Hydrated" /> Properly Hydrated</label>
-                <label class="check-item"><input type="checkbox" value="Good Sleep" /> Good Night of Sleep (when you woke up this morning)</label>
+            <div class="run-hr-chart-wrap">
+              <canvas id="run-hr-chart"></canvas>
+            </div>
+            <p id="run-hr-empty" class="muted center hidden">No heart-rate data recorded for this run.</p>
+          </section>
+
+          <!-- Heart-rate zones -->
+          <section class="card">
+            <h2 class="card-title">Heart Rate Zones</h2>
+            <div id="run-zones" class="run-zones"></div>
+            <p id="run-zones-empty" class="muted center hidden">No heart-rate zone data for this run.</p>
+          </section>
+
+          <!-- Splits (mile / lap) -->
+          <section class="card">
+            <div class="run-card-head">
+              <h2 class="card-title">Splits</h2>
+              <div class="run-toggle" id="run-splits-toggle">
+                <button class="run-toggle-btn active" data-splits="mile">Mile Splits</button>
+                <button class="run-toggle-btn" data-splits="lap">Lap Splits</button>
               </div>
             </div>
-            <button id="btn-save-evening" class="btn btn-primary btn-full">Save Evening Check-In</button>
-          </div>
-        </section>
-
-        <!-- Symptom Chart -->
-        <section class="card" id="symptom-chart-section">
-          <div class="card-title-row">
-            <h2 class="card-title">Symptom Trend</h2>
-            <select id="symptom-injury-filter" class="select symptom-injury-filter">
-              <option value="">All injuries</option>
-            </select>
-          </div>
-          <div class="symptom-chart-legend" id="symptom-chart-legend"></div>
-          <div class="symptom-chart-wrap">
-            <canvas id="symptom-chart"></canvas>
-          </div>
-          <p id="symptom-chart-empty" class="muted center hidden">No check-in data yet. Complete a morning or evening check-in to start tracking symptoms.</p>
-        </section>
+            <div id="run-splits" class="run-splits"></div>
+            <p id="run-splits-empty" class="muted center hidden">No distance data — mile splits unavailable for this run.</p>
+          </section>
+        </div>
 
       </div>
     </div>
@@ -358,42 +266,6 @@
     </div>
   </div>
 
-  <!-- ===================== PAIN SCALE MODAL ===================== -->
-  <div id="pain-scale-modal" class="modal-overlay hidden">
-    <div class="modal-card pain-scale-modal-card">
-      <div class="modal-header">
-        <h3>Pain &amp; Tightness Scale</h3>
-        <button id="pain-scale-modal-close" class="modal-close">&times;</button>
-      </div>
-      <div class="pain-scale-body">
-        <p class="pain-scale-intro">Use this scale consistently each morning. Honest numbers over time reveal patterns your body can't fake.</p>
-        <div class="pain-scale-group pain-scale-green">
-          <div class="pain-scale-range-label">🟢 Low / safe range</div>
-          <div class="pain-scale-item"><span class="pain-scale-num">0</span><span class="pain-scale-desc">No pain</span></div>
-          <div class="pain-scale-item"><span class="pain-scale-num">1</span><span class="pain-scale-desc">Barely noticeable</span></div>
-          <div class="pain-scale-item"><span class="pain-scale-num">2</span><span class="pain-scale-desc">Faint background awareness</span></div>
-          <div class="pain-scale-item"><span class="pain-scale-num">3</span><span class="pain-scale-desc">Easily ignored discomfort</span></div>
-        </div>
-        <div class="pain-scale-group pain-scale-yellow">
-          <div class="pain-scale-range-label">🟡 Moderate / caution range</div>
-          <div class="pain-scale-item"><span class="pain-scale-num">4</span><span class="pain-scale-desc">Consistently noticeable</span></div>
-          <div class="pain-scale-item"><span class="pain-scale-num">5</span><span class="pain-scale-desc">Managing while running</span></div>
-        </div>
-        <div class="pain-scale-group pain-scale-orange">
-          <div class="pain-scale-range-label">🟠 High / performance-limiting</div>
-          <div class="pain-scale-item"><span class="pain-scale-num">6</span><span class="pain-scale-desc">Altering movement slightly</span></div>
-          <div class="pain-scale-item"><span class="pain-scale-num">7</span><span class="pain-scale-desc">Forcing movement changes</span></div>
-        </div>
-        <div class="pain-scale-group pain-scale-red">
-          <div class="pain-scale-range-label">🔴 Severe / stop range</div>
-          <div class="pain-scale-item"><span class="pain-scale-num">8</span><span class="pain-scale-desc">Cannot run normally</span></div>
-          <div class="pain-scale-item"><span class="pain-scale-num">9</span><span class="pain-scale-desc">Near intolerable pain</span></div>
-          <div class="pain-scale-item"><span class="pain-scale-num">10</span><span class="pain-scale-desc">Maximum unbearable pain</span></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- ===================== HELP BUTTON ===================== -->
   <button id="btn-help" class="help-btn" title="How to use StayStacking">?</button>
 
@@ -455,8 +327,8 @@
           </div>
         </div>
 
-        <h4 class="help-section-title">Injury Check-In</h4>
-        <p class="help-body">Daily morning and evening check-ins to track stiffness, pain, and recovery are coming soon.</p>
+        <h4 class="help-section-title">Per-Run Analysis</h4>
+        <p class="help-body">Pick any run from the last 14 days to see a heart-rate-over-time chart plus a mile-by-mile breakdown — pace, average heart rate, and elevation gain/loss for each mile.</p>
 
         <p class="help-body">You can revisit this guide any time by tapping the <strong>?</strong> button at the bottom right of the screen.</p>
 

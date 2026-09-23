@@ -227,6 +227,51 @@ async function fetchActivityStreams(accessToken, activityId) {
 }
 
 /**
+ * Fetches time, heartrate, distance, and altitude streams for a single activity.
+ * Used by the Per-Run Analysis view to build an HR-over-time chart and mile splits.
+ * Any stream may be null if the activity lacks that data (e.g. treadmill has no distance).
+ * @param {string} accessToken
+ * @param {string|number} activityId
+ * @returns {{ time: number[], heartrate: number[]|null, distance: number[]|null, altitude: number[]|null }|null}
+ */
+async function fetchRunStreams(accessToken, activityId) {
+  const result = await httpsRequest({
+    hostname: 'www.strava.com',
+    path: `/api/v3/activities/${activityId}/streams?keys=time,heartrate,distance,altitude&key_by_type=true`,
+    method: 'GET',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (result.statusCode !== 200) return null;
+  const body = result.body;
+  if (!body?.time?.data) return null;
+  return {
+    time: body.time.data,
+    heartrate: body.heartrate?.data || null,
+    distance: body.distance?.data || null,
+    altitude: body.altitude?.data || null,
+  };
+}
+
+/**
+ * Fetches the laps recorded for a single activity.
+ * Each lap includes distance, moving/elapsed time, average_heartrate, and
+ * start_index/end_index into the activity streams. Returns null if unavailable.
+ * @param {string} accessToken
+ * @param {string|number} activityId
+ * @returns {Array|null}
+ */
+async function fetchActivityLaps(accessToken, activityId) {
+  const result = await httpsRequest({
+    hostname: 'www.strava.com',
+    path: `/api/v3/activities/${activityId}/laps`,
+    method: 'GET',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (result.statusCode !== 200) return null;
+  return Array.isArray(result.body) ? result.body : null;
+}
+
+/**
  * Fetches the authenticated athlete's FTP from Strava.
  * Returns the ftp value (watts) or null if not set.
  * @param {string} accessToken
@@ -323,4 +368,4 @@ async function deleteActivity(accessToken, stravaActivityId) {
   return true;
 }
 
-module.exports = { exchangeCode, getValidToken, fetchActivitiesSince, buildAuthUrl, fetchAthleteZones, fetchActivityStreams, fetchAthleteFTP, createActivity, updateActivity, deleteActivity };
+module.exports = { exchangeCode, getValidToken, fetchActivitiesSince, buildAuthUrl, fetchAthleteZones, fetchActivityStreams, fetchRunStreams, fetchActivityLaps, fetchAthleteFTP, createActivity, updateActivity, deleteActivity };

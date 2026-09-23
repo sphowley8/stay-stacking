@@ -13,8 +13,11 @@ const state = {
   user: null,
   activeTab: 'load',
   activePlanSubtab: 'plan-entry',
-  checkins: [],
   activities: [],
+  runs: [],
+  runDetail: null,
+  runXAxis: 'time',       // 'time' | 'distance'
+  runSplitsMode: 'mile',  // 'mile' | 'lap'
   planEntries: [],
   chart: null,
   chartToggles: { distance: true, elevation: false, time: false, zones: false, paceZones: false, powerZones: false, gradeZones: false },
@@ -82,16 +85,6 @@ function hideHelpModal() {
 
 document.getElementById('btn-help').addEventListener('click', showHelpModal);
 
-// Pain scale info modal — shared trigger for all three check-in sections
-document.querySelectorAll('.btn-pain-scale-trigger').forEach(btn => {
-  btn.addEventListener('click', () => document.getElementById('pain-scale-modal').classList.remove('hidden'));
-});
-document.getElementById('pain-scale-modal-close').addEventListener('click', () => {
-  document.getElementById('pain-scale-modal').classList.add('hidden');
-});
-document.getElementById('pain-scale-modal').addEventListener('click', e => {
-  if (e.target === e.currentTarget) document.getElementById('pain-scale-modal').classList.add('hidden');
-});
 document.getElementById('help-modal-close').addEventListener('click', hideHelpModal);
 document.getElementById('help-modal-cta').addEventListener('click', () => {
   localStorage.setItem('onboarding_shown', '1');
@@ -183,7 +176,7 @@ function activateTab(tabId) {
     panel.classList.toggle('hidden', panel.id !== `tab-${tabId}`);
   });
 
-  if (tabId === 'checkin') loadCheckinTab();
+  if (tabId === 'run')     loadRunTab();
   if (tabId === 'load')    loadLoadTab();
   if (tabId === 'plan')    loadPlanTab();
 }
@@ -201,435 +194,320 @@ function activateSubtab(subtabId) {
 }
 
 // ============================================================
-// DAILY CHECK-IN TAB
+// PER-RUN ANALYSIS TAB
 // ============================================================
 
-async function loadCheckinTab() {
+let runHrChart = null;
+
+async function loadRunTab() {
+  const select = document.getElementById('run-select');
   try {
-    const data = await apiFetch('/checkin?days=8');
-    state.checkins = data.checkins || [];
-    renderRecoveryScore();
-    renderInjuryList();
-    renderInjurySelectors();
-    populateTodayCheckin();
-    renderInjuryPanel();
-    renderSymptomChart();
+    const data = await apiFetch('/activities/runs?days=14');
+    const runs = data.runs || [];
+    state.runs = runs;
+
+    select.innerHTML = '<option value="">— Select a run —</option>';
+    for (const r of runs) {
+      const opt = document.createElement('option');
+      opt.value = r.activityId;
+      const distMi = r.distance ? (r.distance / 1609.344).toFixed(1) + ' mi' : '';
+      opt.textContent = [formatFullDate(r.date), r.name, distMi].filter(Boolean).join(' · ');
+      select.appendChild(opt);
+    }
+
+    const hasRuns = runs.length > 0;
+    document.getElementById('run-select-row').classList.toggle('hidden', !hasRuns);
+    document.getElementById('run-empty').classList.toggle('hidden', hasRuns);
+    document.getElementById('run-detail').classList.add('hidden');
+
+    // Auto-load the most recent run
+    if (hasRuns) {
+      select.value = runs[0].activityId;
+      loadRunDetail(runs[0].activityId);
+    }
   } catch (err) {
-    if (err.message !== 'unauthorized') showToast('Failed to load check-in data', 'error');
+    if (err.message !== 'unauthorized') showToast('Failed to load runs', 'error');
   }
 }
 
-function populateTodayCheckin() {
-  const today = getTodayStr();
-  const todayCheckin = state.checkins.find(c => c.date === today);
-  if (!todayCheckin) return;
-
-  if (todayCheckin.injuryId) {
-    document.getElementById('morning-injury-select').value = todayCheckin.injuryId;
-    document.getElementById('evening-injury-select').value = todayCheckin.injuryId;
+async function loadRunDetail(activityId) {
+  const detailEl = document.getElementById('run-detail');
+  const loadingEl = document.getElementById('run-loading');
+  if (!activityId) {
+    detailEl.classList.add('hidden');
+    return;
   }
-  if (todayCheckin.injuredAreaTightness != null) {
-    document.getElementById('morning-tightness').value = todayCheckin.injuredAreaTightness;
-    document.getElementById('val-injured-tightness').textContent = todayCheckin.injuredAreaTightness;
-  }
-  if (todayCheckin.injuredAreaPain != null) {
-    document.getElementById('morning-pain').value = todayCheckin.injuredAreaPain;
-    document.getElementById('val-injured-pain').textContent = todayCheckin.injuredAreaPain;
-  }
-  if (todayCheckin.surroundingAreaTightness != null) {
-    document.getElementById('surrounding-tightness').value = todayCheckin.surroundingAreaTightness;
-    document.getElementById('val-surrounding-tightness').textContent = todayCheckin.surroundingAreaTightness;
-  }
-  if (todayCheckin.surroundingAreaPain != null) {
-    document.getElementById('surrounding-pain').value = todayCheckin.surroundingAreaPain;
-    document.getElementById('val-surrounding-pain').textContent = todayCheckin.surroundingAreaPain;
-  }
-  // Auto-lock completed sections
-  if (todayCheckin.injuredAreaTightness != null || todayCheckin.injuredAreaPain != null) {
-    lockCheckinCard('morning', morningCheckinSummary(todayCheckin));
-  }
-  if (todayCheckin.duringInjuredAreaTightness != null || todayCheckin.duringInjuredAreaPain != null) {
-    lockCheckinCard('during', duringCheckinSummary(todayCheckin));
-  }
-  if (todayCheckin.eveningInjuredAreaPain != null || todayCheckin.fatigue != null) {
-    lockCheckinCard('evening', eveningCheckinSummary(todayCheckin));
-  }
-
-  if (todayCheckin.duringInjuryId) {
-    document.getElementById('during-injury-select').value = todayCheckin.duringInjuryId;
-  }
-  if (todayCheckin.duringInjuredAreaTightness != null) {
-    document.getElementById('during-tightness').value = todayCheckin.duringInjuredAreaTightness;
-    document.getElementById('val-during-injured-tightness').textContent = todayCheckin.duringInjuredAreaTightness;
-  }
-  if (todayCheckin.duringInjuredAreaPain != null) {
-    document.getElementById('during-pain').value = todayCheckin.duringInjuredAreaPain;
-    document.getElementById('val-during-injured-pain').textContent = todayCheckin.duringInjuredAreaPain;
-  }
-  if (todayCheckin.duringSurroundingAreaTightness != null) {
-    document.getElementById('during-surrounding-tightness').value = todayCheckin.duringSurroundingAreaTightness;
-    document.getElementById('val-during-surrounding-tightness').textContent = todayCheckin.duringSurroundingAreaTightness;
-  }
-  if (todayCheckin.duringSurroundingAreaPain != null) {
-    document.getElementById('during-surrounding-pain').value = todayCheckin.duringSurroundingAreaPain;
-    document.getElementById('val-during-surrounding-pain').textContent = todayCheckin.duringSurroundingAreaPain;
-  }
-  if (todayCheckin.eveningInjuredAreaPain != null) {
-    document.getElementById('evening-injured-pain').value = todayCheckin.eveningInjuredAreaPain;
-    document.getElementById('val-evening-injured-pain').textContent = todayCheckin.eveningInjuredAreaPain;
-  }
-  if (todayCheckin.eveningSurroundingAreaPain != null) {
-    document.getElementById('evening-surrounding-pain').value = todayCheckin.eveningSurroundingAreaPain;
-    document.getElementById('val-evening-surrounding-pain').textContent = todayCheckin.eveningSurroundingAreaPain;
-  }
-  if (todayCheckin.fatigue != null) {
-    const f = document.getElementById('evening-fatigue');
-    f.value = todayCheckin.fatigue;
-    document.getElementById('val-fatigue').textContent = todayCheckin.fatigue;
-  }
-  if (todayCheckin.recoveryTools) {
-    const tools = Array.isArray(todayCheckin.recoveryTools)
-      ? todayCheckin.recoveryTools
-      : Array.from(todayCheckin.recoveryTools); // Handle DynamoDB StringSet
-    document.querySelectorAll('#tab-checkin input[type="checkbox"]').forEach(cb => {
-      cb.checked = tools.includes(cb.value);
-    });
+  loadingEl.classList.remove('hidden');
+  detailEl.classList.add('hidden');
+  try {
+    const d = await apiFetch(`/activities/detail?activityId=${encodeURIComponent(activityId)}`);
+    renderRunDetail(d);
+    detailEl.classList.remove('hidden');
+  } catch (err) {
+    if (err.message === 'reauth_required') {
+      showToast('Write access required — sign out and reconnect Strava', 'error');
+    } else if (err.message !== 'unauthorized') {
+      showToast('Failed to load run: ' + err.message, 'error');
+    }
+  } finally {
+    loadingEl.classList.add('hidden');
   }
 }
 
-function renderRecoveryScore() {
-  const banner = document.getElementById('recovery-banner');
-  const icon   = document.getElementById('recovery-icon');
-  const label  = document.getElementById('recovery-label');
+function renderRunDetail(d) {
+  state.runDetail = d;
 
-  const status = computeRecoveryScore(state.checkins);
+  const distMi = (d.distanceMeters || 0) / 1609.344;
+  const elevFt = Math.round((d.elevationMeters || 0) * 3.28084);
 
-  banner.className = 'recovery-banner';
-  if (status === 'green') {
-    banner.classList.add('recovery-green');
-    icon.textContent  = '🟢';
-    label.textContent = 'Adapting — keep building.';
-    renderSuggestions('green');
-  } else if (status === 'yellow') {
-    banner.classList.add('recovery-yellow');
-    icon.textContent  = '🟡';
-    label.textContent = 'Watch Load — stiffness trending up.';
-    renderSuggestions('yellow');
-  } else if (status === 'red') {
-    banner.classList.add('recovery-red');
-    icon.textContent  = '🔴';
-    label.textContent = 'Reduce Density — 5-day upward trend detected.';
-    renderSuggestions('red');
-  } else {
-    banner.classList.add('recovery-unknown');
-    icon.textContent  = '—';
-    label.textContent = 'Log morning check-in to see your recovery status.';
-    renderSuggestions('unknown');
-  }
+  document.getElementById('run-stat-distance').textContent = distMi ? distMi.toFixed(2) + ' mi' : '—';
+  document.getElementById('run-stat-time').textContent = d.elapsedTime ? formatDuration(d.elapsedTime) : '—';
+  document.getElementById('run-stat-pace').textContent =
+    (distMi > 0 && d.elapsedTime) ? formatPace(d.elapsedTime / distMi) + '/mi' : '—';
+  document.getElementById('run-stat-elev').textContent = elevFt ? elevFt + ' ft' : '—';
+
+  // X-axis toggle: only offer Miles if the run has usable distance samples
+  const hasDist = !!(d.hrSeries && Array.isArray(d.hrSeries.dist) && d.hrSeries.dist.some(v => v != null && v > 0));
+  if (state.runXAxis === 'distance' && !hasDist) state.runXAxis = 'time';
+  const milesBtn = document.querySelector('#run-xaxis-toggle [data-xaxis="distance"]');
+  if (milesBtn) milesBtn.disabled = !hasDist;
+  syncRunToggle('run-xaxis-toggle', 'xaxis', state.runXAxis);
+  syncRunToggle('run-splits-toggle', 'splits', state.runSplitsMode);
+
+  renderRunHrChart();
+  renderRunZones(d.hrZoneRanges, d.zoneTimes);
+  renderRunSplits(state.runSplitsMode);
 }
 
-function getInjuryName(injuryId) {
-  if (!injuryId) return null;
-  const inj = (state.user?.injuries || []).find(i => i.id === injuryId);
-  return inj ? inj.name : null;
-}
-
-function lockCheckinCard(cardId, summaryHtml) {
-  const card    = document.getElementById(cardId + '-card');
-  const summary = document.getElementById(cardId + '-summary');
-  const editBtn = document.getElementById('btn-edit-' + cardId);
-  card.classList.add('card--completed');
-  summary.innerHTML = summaryHtml;
-  summary.classList.remove('hidden');
-  editBtn.classList.remove('hidden');
-}
-
-function unlockCheckinCard(cardId) {
-  const card    = document.getElementById(cardId + '-card');
-  const summary = document.getElementById(cardId + '-summary');
-  const editBtn = document.getElementById('btn-edit-' + cardId);
-  card.classList.remove('card--completed');
-  summary.classList.add('hidden');
-  editBtn.classList.add('hidden');
-}
-
-function morningCheckinSummary(c) {
-  const name = getInjuryName(c.injuryId);
-  return (name ? `<strong>${name}</strong><br>` : '') +
-    `Injured — Tightness: <strong>${c.injuredAreaTightness ?? '—'}/10</strong> · Pain: <strong>${c.injuredAreaPain ?? '—'}/10</strong><br>` +
-    `Surrounding — Tightness: <strong>${c.surroundingAreaTightness ?? '—'}/10</strong> · Pain: <strong>${c.surroundingAreaPain ?? '—'}/10</strong>`;
-}
-
-function duringCheckinSummary(c) {
-  const name = getInjuryName(c.duringInjuryId);
-  return (name ? `<strong>${name}</strong><br>` : '') +
-    `Injured — Tightness: <strong>${c.duringInjuredAreaTightness ?? '—'}/10</strong> · Pain: <strong>${c.duringInjuredAreaPain ?? '—'}/10</strong><br>` +
-    `Surrounding — Tightness: <strong>${c.duringSurroundingAreaTightness ?? '—'}/10</strong> · Pain: <strong>${c.duringSurroundingAreaPain ?? '—'}/10</strong>`;
-}
-
-function eveningCheckinSummary(c) {
-  const name = getInjuryName(c.injuryId);
-  const recovery = (c.recoveryTools || []).join(', ') || '—';
-  const lifestyle = (c.lifestyleFactors || []).join(', ') || '—';
-  return (name ? `<strong>${name}</strong><br>` : '') +
-    `Pain: <strong>${c.eveningInjuredAreaPain ?? '—'}/10</strong> · Surrounding Pain: <strong>${c.eveningSurroundingAreaPain ?? '—'}/10</strong> · Fatigue: <strong>${c.fatigue ?? '—'}/10</strong><br>` +
-    `Recovery: <strong>${recovery}</strong><br>` +
-    `Lifestyle: <strong>${lifestyle}</strong>`;
-}
-
-function renderInjurySelectors() {
-  const injuries = state.user?.injuries || [];
-  const options = injuries.map(inj =>
-    `<option value="${inj.id}">${inj.name}</option>`
-  ).join('');
-  ['morning-injury-select', 'during-injury-select', 'evening-injury-select'].forEach(id => {
-    const sel = document.getElementById(id);
-    if (!sel) return;
-    const current = sel.value;
-    sel.innerHTML = '<option value="">— Select injury —</option>' + options;
-    if (current) sel.value = current;
+// Reflect the active option on a toggle button group
+function syncRunToggle(groupId, attr, value) {
+  document.querySelectorAll(`#${groupId} .run-toggle-btn`).forEach(b => {
+    b.classList.toggle('active', b.dataset[attr] === value);
   });
 }
 
-function renderInjuryList() {
-  const injuries = state.user?.injuries || [];
-  const el = document.getElementById('injury-list');
-  if (!el) return;
-  if (!injuries.length) {
-    el.innerHTML = '<p class="muted">No injuries added yet.</p>';
-    return;
-  }
-  el.innerHTML = injuries.map(inj =>
-    `<div class="injury-list-item">
-      <span class="injury-list-name">${inj.name}</span>
-      <span class="injury-list-date">Added ${inj.createdAt}</span>
-      <button class="btn btn-small btn-danger" data-injury-id="${inj.id}">Remove</button>
-    </div>`
-  ).join('');
-  el.querySelectorAll('[data-injury-id]').forEach(btn => {
-    btn.addEventListener('click', () => removeInjury(btn.dataset.injuryId));
-  });
-}
+function renderRunZones(ranges, times) {
+  const container = document.getElementById('run-zones');
+  const emptyEl = document.getElementById('run-zones-empty');
+  container.innerHTML = '';
 
-async function createInjury() {
-  const input = document.getElementById('injury-name-input');
-  const name = input.value.trim();
-  if (!name) return;
-  try {
-    const updated = await apiFetch('/user', { method: 'POST', body: JSON.stringify({ addInjury: { name } }) });
-    state.user.injuries = updated.injuries || [];
-    input.value = '';
-    renderInjuryList();
-    renderInjurySelectors();
-    showToast('Injury added', 'success');
-  } catch (err) {
-    showToast('Failed to add injury: ' + err.message, 'error');
-  }
-}
-
-async function removeInjury(injuryId) {
-  try {
-    const updated = await apiFetch('/user', { method: 'POST', body: JSON.stringify({ removeInjuryId: injuryId }) });
-    state.user.injuries = updated.injuries || [];
-    renderInjuryList();
-    renderInjurySelectors();
-    showToast('Injury removed', 'success');
-  } catch (err) {
-    showToast('Failed to remove injury: ' + err.message, 'error');
-  }
-}
-
-function computeRecoveryScore(checkins) {
-  const withStiffness = checkins
-    .filter(c => c.injuredAreaTightness != null)
-    .slice(-5);
-
-  if (withStiffness.length < 2) return 'unknown';
-
-  const vals = withStiffness.map(c => c.injuredAreaTightness);
-  const last3 = vals.slice(-3);
-  const allIncreasing3 = last3.length >= 3 && last3.every((v, i) => i === 0 || v >= last3[i - 1]);
-  const allIncreasing5 = vals.length >= 5 && vals.every((v, i) => i === 0 || v >= vals[i - 1]);
-
-  if (allIncreasing5) return 'red';
-  if (allIncreasing3) return 'yellow';
-  return 'green';
-}
-
-function renderSuggestions(status) {
-  const container = document.getElementById('suggested-activities');
-  const suggestions = {
-    green:   ['Trail Run or Cycling', 'Strength Session', 'Maintain current load'],
-    yellow:  ['Low-intensity cycling only', 'Isometrics + stretching', 'Avoid heavy downhill'],
-    red:     ['Active recovery only', 'Contrast bath + Theragun', 'Reduce downhill by 30%'],
-    unknown: [],
-  };
-
-  const items = suggestions[status] || [];
-  if (items.length === 0) {
-    container.innerHTML = '<p class="muted">Save morning check-in to see suggestions.</p>';
-    return;
-  }
-
-  container.innerHTML = items.map(s =>
-    `<div class="suggestion-item"><span>→</span><span>${s}</span></div>`
-  ).join('');
-}
-
-function renderInjuryPanel() {
-  // Injury toggle/panel replaced by injury management section — no-op
-}
-
-// ============================================================
-// SYMPTOM TREND CHART
-// ============================================================
-
-let symptomChart = null;
-
-function renderSymptomChart() {
-  const checkins = state.checkins;
-  const injuries = state.user?.injuries || [];
-  const filterSel = document.getElementById('symptom-injury-filter');
-  const emptyEl   = document.getElementById('symptom-chart-empty');
-  const legendEl  = document.getElementById('symptom-chart-legend');
-
-  // Populate injury filter dropdown
-  const currentFilter = filterSel.value;
-  filterSel.innerHTML = '<option value="">All injuries</option>' +
-    injuries.map(i => `<option value="${i.id}"${i.id === currentFilter ? ' selected' : ''}>${i.name}</option>`).join('');
-
-  const filterInjuryId = filterSel.value;
-
-  // Build sorted list of the last 8 weeks of check-in dates with data
-  const sorted = [...checkins].sort((a, b) => a.date.localeCompare(b.date));
-
-  // Filter by selected injury if set
-  const filtered = filterInjuryId
-    ? sorted.filter(c => c.injuryId === filterInjuryId || c.duringInjuryId === filterInjuryId || c.injuryId === filterInjuryId)
-    : sorted;
-
-  const hasData = filtered.some(c =>
-    c.injuredAreaTightness != null || c.injuredAreaPain != null ||
-    c.duringInjuredAreaPain != null || c.eveningInjuredAreaPain != null
-  );
-
-  if (!hasData) {
+  const total = Array.isArray(times) ? times.reduce((a, b) => a + (b || 0), 0) : 0;
+  if (total <= 0) {
+    container.classList.add('hidden');
     emptyEl.classList.remove('hidden');
-    if (symptomChart) { symptomChart.destroy(); symptomChart = null; }
-    legendEl.innerHTML = '';
     return;
   }
+  container.classList.remove('hidden');
   emptyEl.classList.add('hidden');
 
-  const labels = filtered.map(c => {
-    const d = new Date(c.date + 'T00:00:00');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  });
+  for (let z = 0; z < ZONE_NAMES.length; z++) {
+    const secs = times[z] || 0;
+    const pct = (secs / total) * 100;
 
-  const METRICS = [
-    { key: 'injuredAreaTightness',       label: 'Morning Tightness',         color: '#64b5f6' },
-    { key: 'injuredAreaPain',            label: 'Morning Pain',              color: '#e57373' },
-    { key: 'duringInjuredAreaPain',      label: 'During Activity Pain',      color: '#ff8a65' },
-    { key: 'surroundingAreaPain',        label: 'Morning Surrounding Pain',  color: '#ba68c8' },
-    { key: 'eveningInjuredAreaPain',     label: 'Evening Pain',              color: '#c62828' },
-    { key: 'eveningSurroundingAreaPain', label: 'Evening Surrounding Pain',  color: '#7b1fa2' },
-    { key: 'fatigue',                    label: 'Fatigue',                   color: '#a5d6a7' },
-  ];
+    let rangeLabel = '—';
+    if (Array.isArray(ranges) && ranges[z]) {
+      const { min, max } = ranges[z];
+      rangeLabel = (max == null || max <= 0 || max < min) ? `${min}+ bpm` : `${min}–${max} bpm`;
+    }
 
-  const datasets = METRICS.map(m => ({
-    label: m.label,
-    data: filtered.map(c => c[m.key] ?? null),
-    borderColor: m.color,
-    backgroundColor: m.color + '22',
-    borderWidth: 2,
-    pointRadius: 4,
-    pointHoverRadius: 6,
-    tension: 0.3,
-    spanGaps: true,
+    const row = document.createElement('div');
+    row.className = 'zone-row';
+    row.innerHTML = `
+      <span class="zone-name"><span class="zone-swatch" style="background:${ZONE_REDS[z]}"></span>${ZONE_NAMES[z]}</span>
+      <span class="zone-range">${rangeLabel}</span>
+      <span class="zone-bar-wrap"><span class="zone-bar" style="width:${pct.toFixed(1)}%;background:${ZONE_REDS[z]}"></span></span>
+      <span class="zone-pct">${pct.toFixed(0)}%</span>
+      <span class="zone-time">${formatDuration(secs)}</span>
+    `;
+    container.appendChild(row);
+  }
+}
+
+function formatPace(secPerMile) {
+  if (!isFinite(secPerMile) || secPerMile <= 0) return '—';
+  let m = Math.floor(secPerMile / 60);
+  let s = Math.round(secPerMile % 60);
+  if (s === 60) { m += 1; s = 0; }
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function renderRunHrChart() {
+  const d = state.runDetail;
+  const hrSeries = d && d.hrSeries;
+  const hasHeartrate = d && d.hasHeartrate;
+  const ranges = d && d.hrZoneRanges;
+  const wrap = document.querySelector('.run-hr-chart-wrap');
+  const emptyEl = document.getElementById('run-hr-empty');
+
+  if (!hasHeartrate || !hrSeries || !Array.isArray(hrSeries.hr) || hrSeries.hr.length === 0) {
+    if (runHrChart) { runHrChart.destroy(); runHrChart = null; }
+    wrap.classList.add('hidden');
+    emptyEl.classList.remove('hidden');
+    return;
+  }
+  wrap.classList.remove('hidden');
+  emptyEl.classList.add('hidden');
+
+  // X-axis: elapsed minutes, or cumulative miles when the Miles toggle is active
+  const useMiles = state.runXAxis === 'distance'
+    && Array.isArray(hrSeries.dist) && hrSeries.dist.some(v => v != null && v > 0);
+  const points = hrSeries.t.map((sec, i) => ({
+    x: useMiles ? (hrSeries.dist[i] || 0) / 1609.344 : sec / 60,
+    y: hrSeries.hr[i],
   }));
+  const xTitle = useMiles ? 'Distance (mi)' : 'Time (min)';
 
-  // Legend
-  legendEl.innerHTML = METRICS.map(m =>
-    `<div class="symptom-legend-item">
-      <span class="symptom-legend-swatch" style="background:${m.color}"></span>
-      <span>${m.label}</span>
-    </div>`
-  ).join('');
+  // Zone-limit lines: the lower bound of Z2..Z5 (each is the boundary between adjacent zones)
+  const zoneLimits = [];
+  if (Array.isArray(ranges)) {
+    for (let z = 1; z < ranges.length; z++) {
+      const min = ranges[z] && ranges[z].min;
+      if (typeof min === 'number' && min > 0) {
+        zoneLimits.push({ value: min, label: ZONE_NAMES[z], color: ZONE_REDS[z] });
+      }
+    }
+  }
 
-  const ctx = document.getElementById('symptom-chart').getContext('2d');
-  if (symptomChart) symptomChart.destroy();
-  symptomChart = new Chart(ctx, {
+  // Inline plugin: draw dotted horizontal lines at each zone limit over the chart
+  const zoneLinePlugin = {
+    id: 'zoneLimitLines',
+    afterDatasetsDraw(chart) {
+      const y = chart.scales.y;
+      const area = chart.chartArea;
+      if (!y || !area) return;
+      const ctx2 = chart.ctx;
+      ctx2.save();
+      for (const lim of zoneLimits) {
+        if (lim.value < y.min || lim.value > y.max) continue;
+        const py = y.getPixelForValue(lim.value);
+        ctx2.beginPath();
+        ctx2.setLineDash([4, 4]);
+        ctx2.lineWidth = 1;
+        ctx2.strokeStyle = lim.color;
+        ctx2.moveTo(area.left, py);
+        ctx2.lineTo(area.right, py);
+        ctx2.stroke();
+        ctx2.setLineDash([]);
+        ctx2.font = '10px sans-serif';
+        ctx2.fillStyle = lim.color;
+        ctx2.textAlign = 'right';
+        ctx2.textBaseline = 'bottom';
+        ctx2.fillText(`${lim.label} ${lim.value}`, area.right - 4, py - 1);
+      }
+      ctx2.restore();
+    },
+  };
+
+  if (runHrChart) runHrChart.destroy();
+  const ctx = document.getElementById('run-hr-chart').getContext('2d');
+  runHrChart = new Chart(ctx, {
     type: 'line',
-    data: { labels, datasets },
+    data: {
+      datasets: [{
+        label: 'Heart Rate',
+        data: points,
+        borderColor: '#e8503a',
+        backgroundColor: 'rgba(232, 80, 58, 0.12)',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.25,
+      }],
+    },
+    plugins: [zoneLinePlugin],
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
         tooltip: {
+          mode: 'index',
+          intersect: false,
           callbacks: {
-            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y + '/10' : '—'}`,
+            title: (items) => useMiles
+              ? `${items[0].parsed.x.toFixed(2)} mi`
+              : `${Math.round(items[0].parsed.x)} min`,
+            label: (item) => `${Math.round(item.parsed.y)} bpm`,
           },
         },
       },
       scales: {
         x: {
+          type: 'linear',
+          title: { display: true, text: xTitle, color: '#7a8f9c', font: { size: 11 } },
           grid: { display: false },
-          ticks: { color: '#7a8f9c', font: { size: 11 }, maxRotation: 30 },
+          ticks: { color: '#7a8f9c', font: { size: 11 }, callback: (v) => useMiles ? v.toFixed(1) : Math.round(v) },
         },
         y: {
-          min: 0,
-          max: 10,
-          grid: { color: 'rgba(0,0,0,0.05)' },
-          ticks: { color: '#7a8f9c', font: { size: 11 }, stepSize: 2 },
+          title: { display: true, text: 'BPM', color: '#7a8f9c', font: { size: 11 } },
+          grid: { color: 'rgba(181, 203, 216, 0.4)' },
+          ticks: { color: '#7a8f9c', font: { size: 11 } },
         },
       },
     },
   });
 }
 
-// Re-render chart when injury filter changes
-document.getElementById('symptom-injury-filter').addEventListener('change', renderSymptomChart);
+function renderRunSplits(mode) {
+  const isLap = mode === 'lap';
+  const d = state.runDetail;
+  const rows = isLap ? (d && d.laps) : (d && d.splits);
+  const container = document.getElementById('run-splits');
+  const emptyEl = document.getElementById('run-splits-empty');
+  container.innerHTML = '';
+  container.classList.toggle('lap-mode', isLap);
 
-function updateLDI() {
-  const recent = state.checkins.slice(-3);
-  const stiffnessVals = recent.filter(c => c.injuredAreaTightness != null).map(c => c.injuredAreaTightness);
-  const avgStiffness = stiffnessVals.length
-    ? stiffnessVals.reduce((a, b) => a + b, 0) / stiffnessVals.length
-    : 0;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    container.classList.add('hidden');
+    emptyEl.textContent = isLap
+      ? 'No lap data recorded for this run.'
+      : 'No distance data — mile splits unavailable for this run.';
+    emptyEl.classList.remove('hidden');
+    return;
+  }
+  container.classList.remove('hidden');
+  emptyEl.classList.add('hidden');
 
-  const lastCheckin = recent[recent.length - 1] || {};
-  const tools = lastCheckin.recoveryTools
-    ? (Array.isArray(lastCheckin.recoveryTools) ? lastCheckin.recoveryTools : Array.from(lastCheckin.recoveryTools))
-    : [];
+  // Pace-scaled bars: faster split → longer bar
+  const paces = rows.map(s => s.distanceMeters > 0 ? s.timeSec / (s.distanceMeters / 1609.344) : 0)
+    .filter(p => p > 0);
+  const maxPace = paces.length ? Math.max(...paces) : 1;
+  const minPace = paces.length ? Math.min(...paces) : 1;
 
-  const recoveryWeights = { Contrast: 1, Ice: 1, Shockwave: 2, Theragun: 0.5, Graston: 1, Stretching: 0.5, 'Supportive shoes': 0.5 };
-  const recoveryScore = tools.reduce((acc, t) => acc + (recoveryWeights[t] || 0), 0);
+  const header = document.createElement('div');
+  header.className = 'split-row split-head' + (isLap ? ' lap-row' : '');
+  header.innerHTML = isLap
+    ? `<span class="split-mile">Lap</span><span class="split-dist">Dist</span><span class="split-pace">Pace</span><span class="split-hr">Avg HR</span><span class="split-elev">Elev +/−</span>`
+    : `<span class="split-mile">Mile</span><span class="split-pace">Pace</span><span class="split-hr">Avg HR</span><span class="split-elev">Elev +/−</span>`;
+  container.appendChild(header);
 
-  const ldi = Math.max(0, avgStiffness - recoveryScore);
-  const ldiStatus = ldi > 5 ? 'red' : ldi > 2 ? 'yellow' : 'green';
+  for (const s of rows) {
+    const mi = s.distanceMeters / 1609.344;
+    const secPerMi = mi > 0 ? s.timeSec / mi : 0;
+    const gainFt = Math.round(s.elevGainMeters * 3.28084);
+    const lossFt = Math.round(s.elevLossMeters * 3.28084);
+    // Normalize bar length between 25% (slowest) and 100% (fastest)
+    const norm = maxPace > minPace ? (maxPace - secPerMi) / (maxPace - minPace) : 1;
+    const barPct = 25 + 75 * Math.max(0, Math.min(1, norm));
 
-  document.getElementById('ldi-value').textContent = ldi.toFixed(1);
+    const label = isLap
+      ? `${s.lap}`
+      : (s.partial ? `${mi.toFixed(2)} <span class="split-partial">partial</span>` : `${s.mile}`);
+    const distCell = isLap ? `<span class="split-dist">${mi.toFixed(2)} mi</span>` : '';
 
-  const statusBadge = document.getElementById('ldi-status');
-  statusBadge.className = 'ldi-status-badge';
-  statusBadge.classList.add(`ldi-${ldiStatus}`);
-
-  const adviceMap = {
-    green:  'Load density is manageable. Continue current recovery protocol.',
-    yellow: 'Consider adding a recovery session. Avoid stacking high-load days.',
-    red:    'High load density detected. Reduce downhill volume by 30% and prioritize shockwave/contrast.',
-  };
-
-  document.getElementById('injury-advice').textContent = adviceMap[ldiStatus];
-
-  if (ldiStatus === 'red') {
-    statusBadge.textContent = '🔴 Reduce Load';
-  } else if (ldiStatus === 'yellow') {
-    statusBadge.textContent = '🟡 Watch';
-  } else {
-    statusBadge.textContent = '🟢 Adapting';
+    const row = document.createElement('div');
+    row.className = 'split-row' + (isLap ? ' lap-row' : '');
+    row.innerHTML = `
+      <span class="split-mile">${label}</span>
+      ${distCell}
+      <span class="split-pace">
+        <span class="split-bar" style="width:${barPct.toFixed(0)}%"></span>
+        <span class="split-pace-val">${formatPace(secPerMi)}</span>
+      </span>
+      <span class="split-hr">${s.avgHr != null ? s.avgHr + ' bpm' : '—'}</span>
+      <span class="split-elev"><span class="elev-gain">+${gainFt}</span> <span class="elev-loss">−${lossFt}</span> ft</span>
+    `;
+    container.appendChild(row);
   }
 }
 
@@ -1835,92 +1713,6 @@ async function syncActivities() {
 }
 
 // ============================================================
-// MORNING CHECK-IN SAVE
-// ============================================================
-
-async function saveMorningCheckin() {
-  const date = getTodayStr();
-  const injuryId = document.getElementById('morning-injury-select').value || null;
-  const payload = {
-    date,
-    injuryId,
-    injuredAreaTightness:    parseInt(document.getElementById('morning-tightness').value, 10),
-    injuredAreaPain:         parseInt(document.getElementById('morning-pain').value, 10),
-    surroundingAreaTightness: parseInt(document.getElementById('surrounding-tightness').value, 10),
-    surroundingAreaPain:     parseInt(document.getElementById('surrounding-pain').value, 10),
-  };
-
-  try {
-    await apiFetch('/checkin', { method: 'POST', body: JSON.stringify(payload) });
-    showToast('Morning check-in saved', 'success');
-    lockCheckinCard('morning', morningCheckinSummary(payload));
-    await loadCheckinTab();
-  } catch (err) {
-    showToast('Failed to save: ' + err.message, 'error');
-  }
-}
-
-// ============================================================
-// DURING ACTIVITY CHECK-IN SAVE
-// ============================================================
-
-async function saveDuringCheckin() {
-  const date = getTodayStr();
-  const duringInjuryId = document.getElementById('during-injury-select').value || null;
-  const payload = {
-    date,
-    duringInjuryId,
-    duringInjuredAreaTightness:    parseInt(document.getElementById('during-tightness').value, 10),
-    duringInjuredAreaPain:         parseInt(document.getElementById('during-pain').value, 10),
-    duringSurroundingAreaTightness: parseInt(document.getElementById('during-surrounding-tightness').value, 10),
-    duringSurroundingAreaPain:     parseInt(document.getElementById('during-surrounding-pain').value, 10),
-  };
-  try {
-    await apiFetch('/checkin', { method: 'POST', body: JSON.stringify(payload) });
-    showToast('During activity check-in saved', 'success');
-    lockCheckinCard('during', duringCheckinSummary(payload));
-    await loadCheckinTab();
-  } catch (err) {
-    showToast('Failed to save: ' + err.message, 'error');
-  }
-}
-
-// ============================================================
-// EVENING CHECK-IN SAVE
-// ============================================================
-
-async function saveEveningCheckin() {
-  const date = getTodayStr();
-  const LIFESTYLE_VALUES = ['Healthy Diet', 'Hydrated', 'Good Sleep'];
-  const recoveryTools = Array.from(
-    document.querySelectorAll('#tab-checkin input[type="checkbox"]:checked')
-  ).map(cb => cb.value).filter(v => !LIFESTYLE_VALUES.includes(v));
-  const lifestyleFactors = Array.from(
-    document.querySelectorAll('#tab-checkin input[type="checkbox"]:checked')
-  ).map(cb => cb.value).filter(v => LIFESTYLE_VALUES.includes(v));
-
-  const injuryId = document.getElementById('evening-injury-select').value || null;
-  const payload = {
-    date,
-    injuryId,
-    eveningInjuredAreaPain:     parseInt(document.getElementById('evening-injured-pain').value, 10),
-    eveningSurroundingAreaPain: parseInt(document.getElementById('evening-surrounding-pain').value, 10),
-    fatigue:                    parseInt(document.getElementById('evening-fatigue').value, 10),
-    recoveryTools,
-    lifestyleFactors,
-  };
-
-  try {
-    await apiFetch('/checkin', { method: 'POST', body: JSON.stringify(payload) });
-    showToast('Evening check-in saved', 'success');
-    lockCheckinCard('evening', eveningCheckinSummary(payload));
-    await loadCheckinTab();
-  } catch (err) {
-    showToast('Failed to save: ' + err.message, 'error');
-  }
-}
-
-// ============================================================
 // FTP SETTING
 // ============================================================
 
@@ -2053,23 +1845,6 @@ function initVdotInput() {
 }
 
 // ============================================================
-// INJURY TOGGLE
-// ============================================================
-
-async function handleInjuryToggle(checked) {
-  try {
-    await apiFetch('/user', {
-      method: 'POST',
-      body: JSON.stringify({ injuryActive: checked }),
-    });
-    state.user = { ...state.user, injuryActive: checked };
-    renderInjuryPanel();
-  } catch (err) {
-    showToast('Failed to update: ' + err.message, 'error');
-  }
-}
-
-// ============================================================
 // TOAST
 // ============================================================
 
@@ -2156,39 +1931,30 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => activateTab(btn.dataset.tab));
   });
 
-  // Sliders — live display
-  [
-    ['morning-tightness',           'val-injured-tightness'],
-    ['morning-pain',                'val-injured-pain'],
-    ['surrounding-tightness',       'val-surrounding-tightness'],
-    ['surrounding-pain',            'val-surrounding-pain'],
-    ['during-tightness',            'val-during-injured-tightness'],
-    ['during-pain',                 'val-during-injured-pain'],
-    ['during-surrounding-tightness','val-during-surrounding-tightness'],
-    ['during-surrounding-pain',     'val-during-surrounding-pain'],
-    ['evening-injured-pain',        'val-evening-injured-pain'],
-    ['evening-surrounding-pain',    'val-evening-surrounding-pain'],
-    ['evening-fatigue',             'val-fatigue'],
-  ].forEach(([sliderId, valId]) => {
-    const slider = document.getElementById(sliderId);
-    slider.addEventListener('input', () => {
-      document.getElementById(valId).textContent = slider.value;
+  // Per-Run Analysis — run selector
+  document.getElementById('run-select').addEventListener('change', e => {
+    loadRunDetail(e.target.value);
+  });
+
+  // Per-Run Analysis — HR chart x-axis toggle (Time / Miles)
+  document.querySelectorAll('#run-xaxis-toggle .run-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled || state.runXAxis === btn.dataset.xaxis) return;
+      state.runXAxis = btn.dataset.xaxis;
+      syncRunToggle('run-xaxis-toggle', 'xaxis', state.runXAxis);
+      renderRunHrChart();
     });
   });
 
-  // Check-in save buttons
-  document.getElementById('btn-save-morning').addEventListener('click', saveMorningCheckin);
-  document.getElementById('btn-save-during').addEventListener('click', saveDuringCheckin);
-  document.getElementById('btn-save-evening').addEventListener('click', saveEveningCheckin);
-
-  // Edit (unlock) buttons
-  document.getElementById('btn-edit-morning').addEventListener('click', () => unlockCheckinCard('morning'));
-  document.getElementById('btn-edit-during').addEventListener('click',  () => unlockCheckinCard('during'));
-  document.getElementById('btn-edit-evening').addEventListener('click', () => unlockCheckinCard('evening'));
-
-  // Create injury
-  document.getElementById('btn-create-injury').addEventListener('click', createInjury);
-
+  // Per-Run Analysis — splits toggle (Mile / Lap)
+  document.querySelectorAll('#run-splits-toggle .run-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (state.runSplitsMode === btn.dataset.splits) return;
+      state.runSplitsMode = btn.dataset.splits;
+      syncRunToggle('run-splits-toggle', 'splits', state.runSplitsMode);
+      renderRunSplits(state.runSplitsMode);
+    });
+  });
 
   // Metric toggle buttons (Progressive Load)
   document.querySelectorAll('.metric-btn').forEach(btn => {

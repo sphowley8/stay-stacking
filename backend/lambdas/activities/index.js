@@ -4,7 +4,7 @@ const { GetCommand, PutCommand, QueryCommand, UpdateCommand } = require('@aws-sd
 const { BatchGetCommand, BatchWriteCommand } = require('@aws-sdk/lib-dynamodb');
 const { dynamo } = require('./shared/dynamo');
 const { withAuth, withApiKey, response } = require('./shared/auth');
-const { getValidToken, fetchActivitiesSince, fetchAthleteZones, fetchActivityStreams, fetchAthleteFTP, createActivity, updateActivity, deleteActivity } = require('./shared/strava');
+const { getValidToken, fetchActivitiesSince, fetchAthleteZones, fetchActivityStreams, fetchRunStreams, fetchActivityLaps, fetchAthleteFTP, createActivity, updateActivity, deleteActivity } = require('./shared/strava');
 const { getWeekStart, getWeekStartNWeeksAgo } = require('./shared/weekStart');
 
 // 8-week TTL in seconds
@@ -331,6 +331,7 @@ async function syncUserActivities(userId, user) {
           hrZones: activityHrZones,          // [z1s, z2s, z3s, z4s, z5s] in seconds
           ttl,
         };
+        if (activity.name) item.name = activity.name;    // stored for the Per-Run Analysis dropdown
         if (activityPaceZones !== null) {
           item.paceZones = activityPaceZones;           // runs only
           item.paceZoneThresholds = effectivePaceThresholds; // record which thresholds were used
@@ -484,6 +485,133 @@ function inferPowerZones(avgPower, elapsedTime, ftp) {
     if (avgPower < thresholds[t]) { zone = t; break; }
   }
   result[zone] = elapsedTime;
+  return result;
+}
+
+const MILE_METERS = 1609.344;
+
+/**
+ * Builds per-run detail from raw Strava streams:
+ *  - a downsampled heart-rate-over-time series for charting (capped ~400 points)
+ *  - per-mile splits with elapsed time, average HR, and elevation gain/loss
+ * All distances/elevations are returned in meters; the frontend converts to imperial.
+ */
+function computeRunDetail(streams) {
+  const time = Array.isArray(streams.time) ? streams.time : [];
+  const hr = Array.isArray(streams.heartrate) ? streams.heartrate : null;
+  const dist = Array.isArray(streams.distance) ? streams.distance : null;
+  const alt = Array.isArray(streams.altitude) ? streams.altitude : null;
+  const n = time.length;
+
+  // Downsampled HR series (time in seconds, cumulative distance in meters)
+  const hrSeries = { t: [], hr: [], dist: [] };
+  if (hr && n > 0) {
+    const step = Math.max(1, Math.ceil(n / 400));
+    for (let i = 0; i < n; i += step) {
+      if (hr[i] == null) continue;
+      hrSeries.t.push(time[i]);
+      hrSeries.hr.push(hr[i]);
+      hrSeries.dist.push(dist ? dist[i] : null);
+    }
+  }
+
+  // Per-mile splits (requires a distance stream)
+  const splits = [];
+  if (dist && n > 1) {
+    let curMile = 0;
+    let startTime = time[0];
+    let hrSum = 0, hrN = 0, gain = 0, loss = 0;
+    let prevAlt = alt ? alt[0] : null;
+
+    const pushSplit = (endTime, distanceMeters, partial) => {
+      splits.push({
+        mile: curMile + 1,
+        distanceMeters: Math.round(distanceMeters),
+        timeSec: Math.max(0, Math.round(endTime - startTime)),
+        avgHr: hrN ? Math.round(hrSum / hrN) : null,
+        elevGainMeters: Math.round(gain),
+        elevLossMeters: Math.round(loss),
+        ...(partial ? { partial: true } : {}),
+      });
+    };
+
+    for (let i = 0; i < n; i++) {
+      if (hr && hr[i] != null) { hrSum += hr[i]; hrN++; }
+      if (alt && prevAlt != null) {
+        const delta = alt[i] - prevAlt;
+        if (delta > 0) gain += delta; else loss += -delta;
+        prevAlt = alt[i];
+      }
+      const completedMiles = Math.floor((dist[i] || 0) / MILE_METERS);
+      while (completedMiles > curMile) {
+        pushSplit(time[i], MILE_METERS, false);
+        curMile++;
+        startTime = time[i];
+        hrSum = 0; hrN = 0; gain = 0; loss = 0;
+      }
+    }
+
+    // Trailing partial mile (ignore negligible remainders)
+    const totalDist = dist[n - 1] || 0;
+    const remaining = totalDist - curMile * MILE_METERS;
+    if (remaining > 30) pushSplit(time[n - 1], remaining, true);
+  }
+
+  return { hrSeries, splits, hasHeartrate: !!(hr && hr.some(v => v > 0)) };
+}
+
+/**
+ * Builds lap splits from Strava lap objects, using the activity streams
+ * (indexed by lap start_index/end_index) to compute elevation gain/loss and,
+ * when the lap lacks average_heartrate, an averaged HR. Distances in meters.
+ */
+function computeLapSplits(streams, laps) {
+  if (!Array.isArray(laps) || laps.length === 0) return [];
+  const hr = Array.isArray(streams.heartrate) ? streams.heartrate : null;
+  const alt = Array.isArray(streams.altitude) ? streams.altitude : null;
+  const dist = Array.isArray(streams.distance) ? streams.distance : null;
+
+  const result = [];
+  for (const lap of laps) {
+    const s = Number.isInteger(lap.start_index) ? lap.start_index : null;
+    const e = Number.isInteger(lap.end_index) ? lap.end_index : null;
+
+    let gain = 0, loss = 0;
+    if (alt && s != null && e != null && e > s) {
+      let prev = alt[s];
+      for (let i = s + 1; i <= e && i < alt.length; i++) {
+        const delta = alt[i] - prev;
+        if (delta > 0) gain += delta; else loss += -delta;
+        prev = alt[i];
+      }
+    }
+
+    let avgHr = (typeof lap.average_heartrate === 'number') ? Math.round(lap.average_heartrate) : null;
+    if (avgHr == null && hr && s != null && e != null) {
+      let sum = 0, n = 0;
+      for (let i = s; i <= e && i < hr.length; i++) {
+        if (hr[i] != null) { sum += hr[i]; n++; }
+      }
+      if (n) avgHr = Math.round(sum / n);
+    }
+
+    let distanceMeters = (typeof lap.distance === 'number') ? lap.distance : 0;
+    if (!distanceMeters && dist && s != null && e != null) {
+      distanceMeters = (dist[e] || 0) - (dist[s] || 0);
+    }
+
+    const timeSec = (typeof lap.moving_time === 'number') ? lap.moving_time
+      : (typeof lap.elapsed_time === 'number') ? lap.elapsed_time : 0;
+
+    result.push({
+      lap: lap.lap_index || (result.length + 1),
+      distanceMeters: Math.round(distanceMeters),
+      timeSec: Math.round(timeSec),
+      avgHr,
+      elevGainMeters: Math.round(gain),
+      elevLossMeters: Math.round(loss),
+    });
+  }
   return result;
 }
 
@@ -993,6 +1121,95 @@ exports.handler = async (event) => {
 
       const weeks = await buildWeeklyAggregates(userId);
       return response(200, { deleted: true, weeks });
+    })(event);
+  }
+
+  // GET /activities/runs?days=N — list individual runs (default last 14 days) for the Per-Run Analysis dropdown
+  if (method === 'GET' && path.includes('/runs')) {
+    return withAuth(async (event, userId) => {
+      const rawDays = parseInt((event.queryStringParameters || {}).days, 10);
+      const days = Math.min(Math.max(rawDays || 14, 1), 56);
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const eightWeeksAgoMonday = getWeekStartNWeeksAgo(8);
+
+      const result = await dynamo.send(new QueryCommand({
+        TableName: process.env.ACTIVITIES_TABLE,
+        IndexName: 'userId-weekStart-index',
+        KeyConditionExpression: 'userId = :uid AND weekStart >= :minWeek',
+        ExpressionAttributeValues: { ':uid': userId, ':minWeek': eightWeeksAgoMonday },
+      }));
+
+      // Manual runs have no Strava GPS streams, so exclude them (no per-mile detail available)
+      const runs = (result.Items || [])
+        .filter(a => a.activityType === 'Run' && !a.isManual && (a.date || '') >= cutoff)
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+        .map(a => ({
+          activityId: a.activityId,
+          name: a.name || 'Run',
+          date: a.date,
+          distance: a.distance || 0,
+          elevation: a.elevation || 0,
+          time: a.time || 0,
+        }));
+
+      return response(200, { runs });
+    })(event);
+  }
+
+  // GET /activities/detail?activityId=X — on-demand HR series + mile splits for one run
+  if (method === 'GET' && path.includes('/detail')) {
+    return withAuth(async (event, userId) => {
+      const activityId = (event.queryStringParameters || {}).activityId;
+      if (!activityId) return response(400, { error: 'activityId is required' });
+
+      const getResult = await dynamo.send(new GetCommand({
+        TableName: process.env.ACTIVITIES_TABLE,
+        Key: { userId, activityId },
+      }));
+      const record = getResult.Item;
+      if (!record) return response(404, { error: 'Activity not found' });
+
+      const userResult = await dynamo.send(new GetCommand({
+        TableName: process.env.USERS_TABLE,
+        Key: { userId },
+      }));
+      if (!userResult.Item) return response(404, { error: 'User not found' });
+
+      let accessToken;
+      try {
+        accessToken = await getValidToken(userResult.Item);
+      } catch (e) {
+        return response(403, { error: 'reauth_required', message: 'Unable to get valid Strava token.' });
+      }
+
+      const stravaId = record.stravaActivityId || activityId;
+      const streams = await fetchRunStreams(accessToken, stravaId);
+      const detail = streams
+        ? computeRunDetail(streams)
+        : { hrSeries: { t: [], hr: [], dist: [] }, splits: [], hasHeartrate: false };
+
+      // Lap splits (Strava-recorded laps). Independent of streams; tolerate failure.
+      let laps = null;
+      try {
+        laps = await fetchActivityLaps(accessToken, stravaId);
+      } catch (e) {
+        console.warn(`Lap fetch failed for activity ${stravaId}:`, e.message);
+      }
+      const lapSplits = computeLapSplits(streams || {}, laps);
+
+      return response(200, {
+        activityId,
+        name: record.name || 'Run',
+        date: record.date,
+        activityType: record.activityType,
+        distanceMeters: record.distance || 0,
+        elevationMeters: record.elevation || 0,
+        elapsedTime: record.time || 0,
+        hrZoneRanges: userResult.Item.hrZones || null,          // [{ min, max }, ...] from athlete profile
+        zoneTimes: Array.isArray(record.hrZones) ? record.hrZones : null, // seconds in each zone for this run
+        laps: lapSplits,                                        // Strava-recorded lap splits
+        ...detail,
+      });
     })(event);
   }
 

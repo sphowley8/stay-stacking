@@ -97,8 +97,8 @@ resource "aws_iam_role_policy" "secrets_access" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = ["secretsmanager:GetSecretValue"]
+      Effect = "Allow"
+      Action = ["secretsmanager:GetSecretValue"]
       Resource = [
         aws_secretsmanager_secret.jwt.arn,
         aws_secretsmanager_secret.strava.arn,
@@ -216,13 +216,13 @@ resource "aws_cloudwatch_log_group" "costs" {
 
 locals {
   common_env = {
-    SECRET_JWT_ARN           = aws_secretsmanager_secret.jwt.arn
-    SECRET_STRAVA_ARN        = aws_secretsmanager_secret.strava.arn
-    USERS_TABLE              = var.users_table_name
-    ACTIVITIES_TABLE         = var.activities_table_name
-    CHECKINS_TABLE           = var.checkins_table_name
-    TRAINING_PLAN_TABLE      = var.training_plan_table_name
-    FRONTEND_URL             = var.frontend_url
+    SECRET_JWT_ARN      = aws_secretsmanager_secret.jwt.arn
+    SECRET_STRAVA_ARN   = aws_secretsmanager_secret.strava.arn
+    USERS_TABLE         = var.users_table_name
+    ACTIVITIES_TABLE    = var.activities_table_name
+    CHECKINS_TABLE      = var.checkins_table_name
+    TRAINING_PLAN_TABLE = var.training_plan_table_name
+    FRONTEND_URL        = var.frontend_url
   }
 }
 
@@ -235,7 +235,7 @@ resource "aws_lambda_function" "auth" {
   s3_bucket     = var.deploy_bucket_name
   s3_key        = "auth.zip"
   environment { variables = local.common_env }
-  depends_on    = [aws_cloudwatch_log_group.auth]
+  depends_on = [aws_cloudwatch_log_group.auth]
 }
 
 resource "aws_lambda_function" "user" {
@@ -247,7 +247,7 @@ resource "aws_lambda_function" "user" {
   s3_bucket     = var.deploy_bucket_name
   s3_key        = "user.zip"
   environment { variables = local.common_env }
-  depends_on    = [aws_cloudwatch_log_group.user]
+  depends_on = [aws_cloudwatch_log_group.user]
 }
 
 resource "aws_lambda_function" "checkin" {
@@ -259,7 +259,7 @@ resource "aws_lambda_function" "checkin" {
   s3_bucket     = var.deploy_bucket_name
   s3_key        = "checkin.zip"
   environment { variables = local.common_env }
-  depends_on    = [aws_cloudwatch_log_group.checkin]
+  depends_on = [aws_cloudwatch_log_group.checkin]
 }
 
 resource "aws_lambda_function" "activities" {
@@ -275,7 +275,7 @@ resource "aws_lambda_function" "activities" {
       SECRET_EXTERNAL_API_KEY_ARN = aws_secretsmanager_secret.external_api_key.arn
     })
   }
-  depends_on    = [aws_cloudwatch_log_group.activities]
+  depends_on = [aws_cloudwatch_log_group.activities]
 }
 
 resource "aws_lambda_function" "training_plan" {
@@ -287,7 +287,7 @@ resource "aws_lambda_function" "training_plan" {
   s3_bucket     = var.deploy_bucket_name
   s3_key        = "training-plan.zip"
   environment { variables = local.common_env }
-  depends_on    = [aws_cloudwatch_log_group.training_plan]
+  depends_on = [aws_cloudwatch_log_group.training_plan]
 }
 
 resource "aws_lambda_function" "costs" {
@@ -360,20 +360,20 @@ resource "aws_api_gateway_resource" "auth_callback" {
 }
 
 module "auth_strava_get" {
-  source      = "./route"
-  rest_api_id = aws_api_gateway_rest_api.main.id
-  resource_id = aws_api_gateway_resource.auth_strava.id
-  http_method = "GET"
-  lambda_arn  = aws_lambda_function.auth.invoke_arn
+  source       = "./route"
+  rest_api_id  = aws_api_gateway_rest_api.main.id
+  resource_id  = aws_api_gateway_resource.auth_strava.id
+  http_method  = "GET"
+  lambda_arn   = aws_lambda_function.auth.invoke_arn
   frontend_url = var.frontend_url
 }
 
 module "auth_callback_get" {
-  source      = "./route"
-  rest_api_id = aws_api_gateway_rest_api.main.id
-  resource_id = aws_api_gateway_resource.auth_callback.id
-  http_method = "GET"
-  lambda_arn  = aws_lambda_function.auth.invoke_arn
+  source       = "./route"
+  rest_api_id  = aws_api_gateway_rest_api.main.id
+  resource_id  = aws_api_gateway_resource.auth_callback.id
+  http_method  = "GET"
+  lambda_arn   = aws_lambda_function.auth.invoke_arn
   frontend_url = var.frontend_url
 }
 
@@ -388,11 +388,11 @@ resource "aws_api_gateway_resource" "user" {
 }
 
 module "user_get" {
-  source      = "./route"
-  rest_api_id = aws_api_gateway_rest_api.main.id
-  resource_id = aws_api_gateway_resource.user.id
-  http_method = "GET"
-  lambda_arn  = aws_lambda_function.user.invoke_arn
+  source       = "./route"
+  rest_api_id  = aws_api_gateway_rest_api.main.id
+  resource_id  = aws_api_gateway_resource.user.id
+  http_method  = "GET"
+  lambda_arn   = aws_lambda_function.user.invoke_arn
   frontend_url = var.frontend_url
 }
 
@@ -417,11 +417,11 @@ resource "aws_api_gateway_resource" "checkin" {
 }
 
 module "checkin_get" {
-  source      = "./route"
-  rest_api_id = aws_api_gateway_rest_api.main.id
-  resource_id = aws_api_gateway_resource.checkin.id
-  http_method = "GET"
-  lambda_arn  = aws_lambda_function.checkin.invoke_arn
+  source       = "./route"
+  rest_api_id  = aws_api_gateway_rest_api.main.id
+  resource_id  = aws_api_gateway_resource.checkin.id
+  http_method  = "GET"
+  lambda_arn   = aws_lambda_function.checkin.invoke_arn
   frontend_url = var.frontend_url
 }
 
@@ -446,11 +446,11 @@ resource "aws_api_gateway_resource" "activities" {
 }
 
 module "activities_get" {
-  source      = "./route"
-  rest_api_id = aws_api_gateway_rest_api.main.id
-  resource_id = aws_api_gateway_resource.activities.id
-  http_method = "GET"
-  lambda_arn  = aws_lambda_function.activities.invoke_arn
+  source       = "./route"
+  rest_api_id  = aws_api_gateway_rest_api.main.id
+  resource_id  = aws_api_gateway_resource.activities.id
+  http_method  = "GET"
+  lambda_arn   = aws_lambda_function.activities.invoke_arn
   frontend_url = var.frontend_url
 }
 
@@ -461,11 +461,11 @@ resource "aws_api_gateway_resource" "activities_sync" {
 }
 
 module "activities_sync_post" {
-  source      = "./route"
-  rest_api_id = aws_api_gateway_rest_api.main.id
-  resource_id = aws_api_gateway_resource.activities_sync.id
-  http_method = "POST"
-  lambda_arn  = aws_lambda_function.activities.invoke_arn
+  source       = "./route"
+  rest_api_id  = aws_api_gateway_rest_api.main.id
+  resource_id  = aws_api_gateway_resource.activities_sync.id
+  http_method  = "POST"
+  lambda_arn   = aws_lambda_function.activities.invoke_arn
   frontend_url = var.frontend_url
 }
 
@@ -520,6 +520,36 @@ module "activities_manual_delete" {
   create_options = true
 }
 
+resource "aws_api_gateway_resource" "activities_runs" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.activities.id
+  path_part   = "runs"
+}
+
+module "activities_runs_get" {
+  source       = "./route"
+  rest_api_id  = aws_api_gateway_rest_api.main.id
+  resource_id  = aws_api_gateway_resource.activities_runs.id
+  http_method  = "GET"
+  lambda_arn   = aws_lambda_function.activities.invoke_arn
+  frontend_url = var.frontend_url
+}
+
+resource "aws_api_gateway_resource" "activities_detail" {
+  rest_api_id = aws_api_gateway_rest_api.main.id
+  parent_id   = aws_api_gateway_resource.activities.id
+  path_part   = "detail"
+}
+
+module "activities_detail_get" {
+  source       = "./route"
+  rest_api_id  = aws_api_gateway_rest_api.main.id
+  resource_id  = aws_api_gateway_resource.activities_detail.id
+  http_method  = "GET"
+  lambda_arn   = aws_lambda_function.activities.invoke_arn
+  frontend_url = var.frontend_url
+}
+
 # -------------------------------------------------------
 # /external resource — service-to-service API
 # -------------------------------------------------------
@@ -567,11 +597,11 @@ resource "aws_api_gateway_resource" "training_plan" {
 }
 
 module "training_plan_get" {
-  source      = "./route"
-  rest_api_id = aws_api_gateway_rest_api.main.id
-  resource_id = aws_api_gateway_resource.training_plan.id
-  http_method = "GET"
-  lambda_arn  = aws_lambda_function.training_plan.invoke_arn
+  source       = "./route"
+  rest_api_id  = aws_api_gateway_rest_api.main.id
+  resource_id  = aws_api_gateway_resource.training_plan.id
+  http_method  = "GET"
+  lambda_arn   = aws_lambda_function.training_plan.invoke_arn
   frontend_url = var.frontend_url
 }
 
@@ -582,11 +612,11 @@ resource "aws_api_gateway_resource" "training_plan_date" {
 }
 
 module "training_plan_date_post" {
-  source      = "./route"
-  rest_api_id = aws_api_gateway_rest_api.main.id
-  resource_id = aws_api_gateway_resource.training_plan_date.id
-  http_method = "POST"
-  lambda_arn  = aws_lambda_function.training_plan.invoke_arn
+  source       = "./route"
+  rest_api_id  = aws_api_gateway_rest_api.main.id
+  resource_id  = aws_api_gateway_resource.training_plan_date.id
+  http_method  = "POST"
+  lambda_arn   = aws_lambda_function.training_plan.invoke_arn
   frontend_url = var.frontend_url
 }
 
@@ -691,6 +721,8 @@ resource "aws_api_gateway_deployment" "main" {
       module.activities_manual_get,
       module.activities_manual_put,
       module.activities_manual_delete,
+      module.activities_runs_get,
+      module.activities_detail_get,
       module.external_activities_get,
       module.external_activities_post,
       module.training_plan_get,
