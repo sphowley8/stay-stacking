@@ -552,7 +552,7 @@ const METRIC_AXIS = {
   distance:   { unit: 'mi',  color: '#b57400' },
   elevation:  { unit: 'ft',  color: '#44525f' },
   time:       { unit: 'hrs', color: '#2a7a1f' },
-  zones:      { unit: 'hrs', color: '#b71c1c' },
+  zones:      { unit: '%',   color: '#b71c1c' },
   paceZones:  { unit: 'hrs', color: '#0d47a1' },
   powerZones: { unit: 'hrs', color: '#6a1b9a' },
   gradeZones: { unit: 'hrs', color: '#2e7d32' },
@@ -690,31 +690,37 @@ function renderLoadChart() {
       if (state.thresholdMode.zones) {
         const b = state.thresholdBoundary.zones;
         datasets.push({
-          label: 'Above threshold (hrs)', yAxisID: 'y-zones', stack: 'stack-zones',
+          label: 'Above threshold (%)', yAxisID: 'y-zones', stack: 'stack-zones',
           data: weeks.map(w => {
             const z = w.hrZones;
-            return Array.isArray(z) ? parseFloat((z.slice(b + 1).reduce((a, v) => a + v, 0) / 3600).toFixed(1)) : 0;
+            if (!Array.isArray(z)) return 0;
+            const total = z.reduce((a, v) => a + v, 0);
+            return total > 0 ? parseFloat((z.slice(b + 1).reduce((a, v) => a + v, 0) / total * 100).toFixed(1)) : 0;
           }),
           backgroundColor: '#c62828', borderWidth: 0, borderRadius: 0,
         });
         datasets.push({
-          label: 'Below threshold (hrs)', yAxisID: 'y-zones', stack: 'stack-zones',
+          label: 'Below threshold (%)', yAxisID: 'y-zones', stack: 'stack-zones',
           data: weeks.map(w => {
             const z = w.hrZones;
-            return Array.isArray(z) ? parseFloat((z.slice(0, b + 1).reduce((a, v) => a + v, 0) / 3600).toFixed(1)) : 0;
+            if (!Array.isArray(z)) return 0;
+            const total = z.reduce((a, v) => a + v, 0);
+            return total > 0 ? parseFloat((z.slice(0, b + 1).reduce((a, v) => a + v, 0) / total * 100).toFixed(1)) : 0;
           }),
           backgroundColor: '#ffcdd2', borderWidth: 0, borderRadius: 0,
         });
       } else {
-        // HR Zones: Z5 (hardest) at bottom → Z1 (easiest) at top
-        for (let z = ZONE_NAMES.length - 1; z >= 0; z--) {
+        // HR Zones: Z1 (easiest) at bottom → Z5 (hardest) at top
+        for (let z = 0; z < ZONE_NAMES.length; z++) {
           datasets.push({
-            label: `${ZONE_NAMES[z]} (hrs)`,
+            label: `${ZONE_NAMES[z]} (%)`,
             yAxisID: 'y-zones',
             stack: 'stack-zones',
             data: weeks.map(w => {
               const zoneArr = w.hrZones;
-              return Array.isArray(zoneArr) ? parseFloat((zoneArr[z] / 3600).toFixed(1)) : 0;
+              if (!Array.isArray(zoneArr)) return 0;
+              const total = zoneArr.reduce((a, v) => a + v, 0);
+              return total > 0 ? parseFloat((zoneArr[z] / total * 100).toFixed(1)) : 0;
             }),
             backgroundColor: ZONE_REDS[z],
             borderWidth: 0,
@@ -865,9 +871,12 @@ function renderLoadChart() {
       },
       ticks: {
         color: METRIC_AXIS[metric].color,
-        callback: (val) => METRIC_AXIS[metric].unit === 'hrs'
-          ? formatHours(val)
-          : `${val} ${METRIC_AXIS[metric].unit}`,
+        callback: (val) => {
+          const unit = METRIC_AXIS[metric].unit;
+          if (unit === 'hrs') return formatHours(val);
+          if (unit === '%') return `${val}%`;
+          return `${val} ${unit}`;
+        },
       },
     };
   });
@@ -884,13 +893,15 @@ function renderLoadChart() {
         tooltip: {
           mode: 'index',
           intersect: false,
+          itemSort: (a, b) => b.datasetIndex - a.datasetIndex,
           callbacks: {
             label: (context) => {
               const val = context.parsed.y;
               if (!val) return null;
               const metric = (context.dataset.yAxisID || '').replace('y-', '');
-              const label = context.dataset.label.replace(' (hrs)', '');
+              const label = context.dataset.label.replace(' (hrs)', '').replace(' (%)', '');
               if (METRIC_AXIS[metric]?.unit === 'hrs') return `${label}: ${formatHours(val)}`;
+              if (METRIC_AXIS[metric]?.unit === '%') return `${label}: ${val.toFixed(1)}%`;
               return `${context.dataset.label}: ${val}`;
             },
           },
@@ -949,8 +960,8 @@ function legendHtml(metric, activityTypes) {
   if (metric === 'zones') {
     if (state.thresholdMode.zones) {
       const cut = getThresholdCutLabel('zones', state.thresholdBoundary.zones);
-      return `<div class="chart-legend-item"><span class="chart-legend-swatch" style="background:#c62828"></span><span>Above ${cut} (hrs)</span></div>` +
-             `<div class="chart-legend-item"><span class="chart-legend-swatch" style="background:#ffcdd2"></span><span>Below ${cut} (hrs)</span></div>`;
+      return `<div class="chart-legend-item"><span class="chart-legend-swatch" style="background:#c62828"></span><span>Above ${cut} (%)</span></div>` +
+             `<div class="chart-legend-item"><span class="chart-legend-swatch" style="background:#ffcdd2"></span><span>Below ${cut} (%)</span></div>`;
     }
     const zones = state.user?.hrZones;
     return ZONE_NAMES.map((name, i) => {
@@ -962,7 +973,7 @@ function legendHtml(metric, activityTypes) {
       }
       return `<div class="chart-legend-item">` +
         `<span class="chart-legend-swatch" style="background:${ZONE_REDS[i]}"></span>` +
-        `<span>${name}${range} (hrs)</span>` +
+        `<span>${name}${range} (%)</span>` +
         `</div>`;
     }).join('');
   }
